@@ -1,0 +1,182 @@
+"""Overindex agent core: a ReAct investigation loop.
+
+The LLM (Gemini, function calling) plans and chooses which Qloo tools to call;
+we execute them and feed results back until it decides it has enough or hits the
+step cap. The sequence of tool calls IS the agentic behaviour — the model
+decides which domains to pursue and which to skip based on what it sees.
+
+v1 toolset is deliberately TRIMMED (red-team): resolve_entity, affinity_scan,
+get_tags. No demographics / compare / trending / baseline (unverified shapes,
+and cut to fund genuine agency + keep the loop cheap).
+"""
+from __future__ import annotations
+
+import time
+
+from qloo import parsers
+from llm import function_calls_of, model_turn, text_of
+
+DOMAINS = ["artist", "movie", "tv_show", "book", "brand", "place", "podcast", "videogame"]
+
+SYSTEM = """You are Overindex, an AI audience-intelligence analyst for small brands.
+Given a brand, investigate its cultural audience with the Qloo tools and gather
+enough signal to build a marketing playbook.
+
+How to work:
+1. First resolve the brand with resolve_entity. If the exact brand isn't in Qloo,
+   resolve 2-3 comparable entities (a peer brand + a cultural anchor its buyers
+   likely share) and use those as proxies — this is expected for small/new brands,
+   not a failure. Say when you do it.
+2. Investigate like an analyst, not a script: scan the domains you judge most
+   relevant with affinity_scan, then ADAPT — pursue domains where you see strong,
+   surprising affinities; skip domains that look weak. Briefly explain each choice.
+3. Qloo gives affinity (0-1 relevance of an entity to this audience) and popularity.
+   The interesting signals are HIGH affinity + relatively LOW popularity (ownable,
+   non-obvious). Watch for a cross-domain "blind spot" — a surprising entity the
+   brand would never guess.
+4. Aim for ~8-14 tool calls total. When you have enough across several domains to
+   describe the audience and find a non-obvious insight, STOP calling tools and
+   reply with a short plain-text note that you're done.
+
+Think step by step; keep reasoning short and concrete."""
+
+
+TOOL_DECLARATIONS = [
+    {
+        "functionDeclarations": [
+            {
+                "name": "resolve_entity",
+                "description": (
+                    "Look up a brand/company/product (or any cultural entity) by name in Qloo to get "
+                    "its entity id. Call this first. If the exact brand isn't found, resolve 2-3 "
+                    "comparable entities (a peer brand, or an artist/show its customers likely share)."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Entity name to look up"},
+                        "type": {
+                            "type": "string",
+                            "description": "Optional entity-type hint",
+                            "enum": ["brand", "artist", "movie", "tv_show", "book", "place", "podcast", "videogame", "person"],
+                        },
+                    },
+                    "required": ["name"],
+                },
+            },
+            {
+                "name": "affinity_scan",
+                "description": (
+                    "Given a resolved entity id, find the entities in a domain that this audience most "
+                    "over-indexes on (highest affinity). Your core investigation tool — call it for the "
+                    "domains you judge relevant, and adapt based on results."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "entity_id": {"type": "string", "description": "Qloo entity id from resolve_entity"},
+                        "domain": {"type": "string", "enum": DOMAINS, "description": "Domain to scan"},
+                    },
+                    "required": ["entity_id", "domain"],
+                },
+            },
+            {
+                "name": "get_tags",
+                "description": "Find Qloo tag ids for an interest/genre/cuisine keyword (content-theme vocabulary).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"query": {"type": "string", "description": "Keyword, e.g. 'coffee' or 'indie rock'"}},
+                    "required": ["query"],
+                },
+            },
+        ]
+    }
+]
+
+
+async def execute_tool(qloo, name: str, args: dict):
+    """Run one tool against Qloo. Returns (response_for_llm, human_summary)."""
+    if name == "resolve_entity":
+        extra = {"types": f"urn:entity:{args['type']}"} if args.get("type") else {}
+        resp = await qloo.search(args["name"], **extra)
+        ents = parsers.search_results(resp)[:5]
+        out = [{"id": parsers.entity_id(e), "name": parsers.name_of(e), "popularity": parsers.popularity(e)} for e in ents]
+        summary = f"{len(out)} match(es)" + (f"; top: {out[0]['name']}" if out else " — none found")
+        return {"entities": out}, summary
+
+    if name == "affinity_scan":
+        resp = await qloo.insights(
+            "urn:entity:" + args["domain"],
+            **{"signal.interests.entities": args["entity_id"], "take": 15},
+        )
+        ents = parsers.insight_entities(resp)[:15]
+        out = [
+            {"id": parsers.entity_id(e), "name": parsers.name_of(e),
+             "affinity": parsers.affinity(e), "popularity": parsers.popularity(e)}
+            for e in ents
+        ]
+        top = ", ".join(f"{o['name']} ({o['affinity']})" for o in out[:3])
+        return {"domain": args["domain"], "entities": out}, f"{len(out)} {args['domain']}; top: {top}"
+
+    if name == "get_tags":
+        resp = await qloo.tags(**{"filter.query": args["query"]})
+        tags = parsers.tag_results(resp)[:10]
+        out = [{"id": parsers.tag_id(t), "name": parsers.name_of(t)} for t in tags]
+        return {"tags": out}, f"{len(out)} tags for '{args['query']}'"
+
+    return {"error": f"unknown tool {name}"}, f"unknown tool {name}"
+
+
+async def run_investigation(brand: str, qloo, llm, emit=None, max_steps: int = 14):
+    """Drive the ReAct loop. `emit` (async callable) receives RunEvent dicts for
+    the live trace; everything is also collected and returned."""
+    async def _emit(ev):
+        if emit:
+            await emit(ev)
+
+    contents = [{"role": "user", "parts": [{"text": f"Investigate this brand's cultural audience: {brand}"}]}]
+    gathered, trace, steps = [], [], 0
+
+    await _emit({"type": "run_start", "brand": brand})
+    while steps < max_steps:
+        resp = await llm.generate(contents, tools=TOOL_DECLARATIONS, system=SYSTEM,
+                                  max_output_tokens=1024, thinking_budget=0)
+        calls = function_calls_of(resp)
+        thought = text_of(resp)
+        if thought:
+            await _emit({"type": "thought", "text": thought})
+            trace.append({"type": "thought", "text": thought})
+        if not calls:
+            await _emit({"type": "investigation_done", "note": thought})
+            break
+
+        contents.append(model_turn(resp))
+        fr_parts = []
+        for c in calls:
+            steps += 1
+            name, args = c["name"], (c.get("args") or {})
+            await _emit({"type": "step_start", "tool": name, "args": args})
+            t0 = time.monotonic()
+            try:
+                result, summary = await execute_tool(qloo, name, args)
+                dt = int((time.monotonic() - t0) * 1000)
+                await _emit({"type": "step_result", "tool": name, "summary": summary, "latency_ms": dt})
+                trace.append({"type": "step", "tool": name, "args": args, "summary": summary, "latency_ms": dt})
+                gathered.append({"tool": name, "args": args, "result": result})
+            except Exception as exc:
+                result = {"error": str(exc)}
+                await _emit({"type": "step_result", "tool": name, "summary": f"error: {exc}", "status": "error"})
+            fr = {"name": name, "response": result}
+            if c.get("id"):
+                fr["id"] = c["id"]
+            fr_parts.append({"functionResponse": fr})
+        contents.append({"role": "user", "parts": fr_parts})
+
+    await _emit({"type": "gathered", "count": len(gathered)})
+    return {
+        "brand": brand,
+        "gathered": gathered,
+        "trace": trace,
+        "steps": steps,
+        "qloo_calls": list(getattr(qloo, "calls", [])),
+    }
