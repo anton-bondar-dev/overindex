@@ -32,120 +32,150 @@ export function ResultScreen({ runId, onHome }: { runId: string; onHome: () => v
   if (err)
     return (
       <Centered>
-        <p className="text-red-600">{err}</p>
-        <HomeButton onHome={onHome} />
+        <p className="text-neg">{err}</p>
+        <button onClick={onHome} className="mt-4 rounded-[8px] bg-accent px-4 py-2 text-sm font-medium text-text-hi">
+          Start over
+        </button>
       </Centered>
     )
   if (!result)
     return (
       <Centered>
-        <span className="inline-block h-3 w-3 animate-pulse rounded-full bg-blue-500" />
-        <p className="mt-3 text-slate-500">Loading playbook…</p>
+        <span className="h-2.5 w-2.5 rounded-full bg-accent" style={{ animation: 'pulse-accent 1.4s infinite' }} />
+        <p className="mt-3 text-text-dim">Loading playbook…</p>
       </Centered>
     )
 
   const bs = result.blind_spot
+  const stat = `${result.domains.length} domains · ${result.domains.reduce((n, d) => n + d.entities.length, 0)} entities · ${result.qloo_calls.length} Qloo calls`
+  const spine = [...result.domains].sort((a, b) => topAff(b) - topAff(a))
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-10">
-      <div className="flex items-center justify-between">
-        <div className="text-sm font-medium tracking-wide text-blue-500">OVERINDEX</div>
-        <button onClick={onHome} className="text-sm text-slate-500 hover:text-blue-600">
+    <div className="mx-auto max-w-4xl px-4 pb-24">
+      {/* sticky header */}
+      <div className="sticky top-0 z-10 -mx-4 flex items-center justify-between border-b border-border bg-bg/85 px-4 py-3 backdrop-blur">
+        <Wordmark />
+        <button onClick={onHome} className="text-sm text-text-dim transition-colors hover:text-accent-hi">
           Run another →
         </button>
       </div>
 
-      {/* Persona */}
-      <h1 className="mt-4 text-3xl font-semibold text-slate-900 dark:text-white">
-        {result.persona?.name || result.brand}
-      </h1>
-      <p className="mt-1 text-sm text-slate-400">Audience playbook for {result.brand}</p>
-      {result.persona?.narrative && (
-        <p className="mt-4 text-lg leading-relaxed text-slate-700 dark:text-slate-300">
-          {result.persona.narrative}
-        </p>
-      )}
+      {/* persona */}
+      <header className="mt-10">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-text-faint">Audience playbook · {result.brand}</div>
+        <h1 className="mt-2 text-4xl font-semibold tracking-[-0.02em] text-text-hi">
+          {result.persona?.name || result.brand}
+        </h1>
+        {result.persona?.narrative && (
+          <p className="mt-4 max-w-2xl text-lg leading-relaxed text-text">{result.persona.narrative}</p>
+        )}
+        <div className="mono-num mt-4 text-[13px] text-text-dim">{stat}</div>
+      </header>
 
-      {/* Blind spot — the hero */}
+      {/* BLIND SPOT — the hero (the one glow) */}
       {bs && (
-        <div className="mt-8 rounded-2xl border border-blue-200 bg-blue-50 p-6 dark:border-blue-900 dark:bg-blue-950/40">
-          <div className="text-xs font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400">
-            Blind spot
-          </div>
-          <p className="mt-2 text-xl font-medium leading-snug text-slate-900 dark:text-white">{bs.line}</p>
-          <div className="mt-3 flex items-center gap-2 text-sm text-slate-500">
-            <Dot domain={bs.entity.domain} />
-            {bs.entity.name} · {bs.entity.domain} · affinity {fmt(bs.entity.affinity)}
+        <div className="card glow mt-10 p-7" style={{ borderRadius: 'var(--radius-hero)' }}>
+          <div className="grid gap-6 sm:grid-cols-[1fr_auto] sm:items-center">
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-accent-hi">Blind spot</div>
+              <p className="mt-3 text-xl font-medium leading-snug text-text-hi">{bs.line}</p>
+              <div className="mono-num mt-4 flex items-center gap-2 text-[13px] text-text-dim">
+                <Dot domain={bs.entity.domain} />
+                {bs.entity.name} · {bs.entity.domain}
+              </div>
+            </div>
+            <div className="flex flex-col items-center">
+              <HeroFigure e={bs.entity} />
+              <Bridge toDomain={bs.entity.domain} affinity={bs.entity.affinity} />
+            </div>
           </div>
         </div>
       )}
 
-      {/* Opportunities (grounded) */}
-      <Section title="What they quietly over-index on" tag="grounded"
-        sub="High relevance, lower popularity — the ownable signals.">
-        <div className="space-y-2">
-          {result.opportunities.slice(0, 8).map((e) => (
-            <EntityRow key={e.id + e.domain} e={e} />
-          ))}
-        </div>
-      </Section>
+      {/* OPPORTUNITIES (grounded) */}
+      {result.opportunities.length > 0 && (
+        <Section kind="grounded" title="What they quietly over-index on" sub="High affinity, lower reach — the ownable signals.">
+          <div className="mt-3 space-y-1.5">
+            {result.opportunities.slice(0, 8).map((e) => (
+              <AffinityBar key={e.id + e.domain} e={e} showLift />
+            ))}
+          </div>
+        </Section>
+      )}
 
-      {/* Taste fingerprint by domain (grounded) */}
-      <Section title="Taste fingerprint by domain" tag="grounded">
-        <div className="grid gap-5 sm:grid-cols-2">
-          {result.domains.map((d) => (
+      {/* TASTE FINGERPRINT (grounded) */}
+      <Section kind="grounded" title="Taste fingerprint by domain">
+        <div className="mt-3 grid gap-x-8 gap-y-5 sm:grid-cols-2">
+          {spine.map((d) => (
             <div key={d.domain}>
-              <div className="mb-2 flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300">
+              <div className="mb-2 flex items-center gap-2 text-sm font-medium text-text-hi">
                 <Dot domain={d.domain} /> {d.domain}
               </div>
               <div className="space-y-1.5">
                 {d.entities.slice(0, 5).map((e) => (
-                  <MiniBar key={e.id} name={e.name} value={e.affinity} />
+                  <AffinityBar key={e.id} e={e} compact />
                 ))}
               </div>
             </div>
           ))}
         </div>
+        <details className="mt-5">
+          <summary className="cursor-pointer text-[13px] text-text-dim hover:text-text">Show as table</summary>
+          <div className="mt-2 overflow-hidden rounded-[8px] border border-border">
+            <table className="mono-num w-full text-[12px]">
+              <tbody>
+                {spine.flatMap((d) =>
+                  d.entities.slice(0, 5).map((e) => (
+                    <tr key={e.id} className="border-b border-border last:border-0">
+                      <td className="px-3 py-1 text-text-dim">{e.domain}</td>
+                      <td className="px-3 py-1 text-text">{e.name}</td>
+                      <td className="px-3 py-1 text-right text-text-dim">{e.affinity.toFixed(2)}</td>
+                      <td className="px-3 py-1 text-right text-text-faint">pop {pct(e.popularity)}</td>
+                    </tr>
+                  )),
+                )}
+              </tbody>
+            </table>
+          </div>
+        </details>
       </Section>
 
-      {/* Collaborations (proposed) */}
+      {/* COLLABORATIONS (proposed) */}
       {result.collaborations.length > 0 && (
-        <Section title="Collaborations to pursue" tag="proposed">
-          <div className="grid gap-3 sm:grid-cols-2">
+        <Section kind="proposed" title="Collaborations to pursue">
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
             {result.collaborations.map((c, i) => (
-              <div key={i} className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 font-medium text-slate-800 dark:text-slate-200">
+              <div key={i} className="card p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 font-medium text-text-hi">
                     <Dot domain={c.entity.domain} /> {c.entity.name}
                   </div>
-                  <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-950 dark:text-blue-300">
-                    {fmt(c.arbitrage)}
-                  </span>
+                  <span className="mono-num text-[12px] text-text-dim">{c.arbitrage.toFixed(2)}</span>
                 </div>
-                <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">{c.pitch}</p>
+                <p className="mt-2 text-sm text-text">{c.pitch}</p>
               </div>
             ))}
           </div>
         </Section>
       )}
 
-      {/* Content & channels (proposed) */}
+      {/* CONTENT & CHANNELS (proposed) */}
       {(result.content_themes.length > 0 || result.channels.length > 0) && (
-        <Section title="Content & channels" tag="proposed">
-          <div className="grid gap-5 sm:grid-cols-2">
+        <Section kind="proposed" title="Content & channels">
+          <div className="mt-3 grid gap-6 sm:grid-cols-2">
             <div className="space-y-3">
               {result.content_themes.map((t, i) => (
                 <div key={i}>
-                  <div className="font-medium text-slate-800 dark:text-slate-200">{t.title}</div>
-                  <p className="text-sm text-slate-500">{t.rationale}</p>
+                  <div className="font-medium text-text-hi">{t.title}</div>
+                  <p className="text-sm text-text-dim">{t.rationale}</p>
                 </div>
               ))}
             </div>
             <div className="space-y-2">
               {result.channels.map((ch, i) => (
-                <div key={i} className="rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-                  <div className="text-sm font-medium text-slate-800 dark:text-slate-200">{ch.name}</div>
-                  <p className="text-sm text-slate-500">{ch.rationale}</p>
+                <div key={i} className="card p-3">
+                  <div className="text-sm font-medium text-text-hi">{ch.name}</div>
+                  <p className="text-sm text-text-dim">{ch.rationale}</p>
                 </div>
               ))}
             </div>
@@ -153,15 +183,15 @@ export function ResultScreen({ runId, onHome }: { runId: string; onHome: () => v
         </Section>
       )}
 
-      {/* Methodology (grounded transparency) */}
-      <Section title="Methodology" tag="grounded" sub={`${result.qloo_calls.length} Qloo API calls`}>
-        <div className="overflow-hidden rounded-lg border border-slate-200 text-sm dark:border-slate-800">
-          <table className="w-full">
+      {/* METHODOLOGY (grounded) */}
+      <Section kind="grounded" title="Methodology" sub={`${result.qloo_calls.length} real Qloo API calls`}>
+        <div className="mt-3 overflow-hidden rounded-[8px] border border-border">
+          <table className="mono-num w-full text-[12px]">
             <tbody>
               {result.qloo_calls.map((q, i) => (
-                <tr key={i} className="border-b border-slate-100 last:border-0 dark:border-slate-800">
-                  <td className="px-3 py-1.5 font-mono text-xs text-slate-600 dark:text-slate-400">{q.endpoint}</td>
-                  <td className="px-3 py-1.5 text-right text-xs text-slate-400">{q.latency_ms ?? '–'} ms</td>
+                <tr key={i} className="border-b border-border last:border-0">
+                  <td className="px-3 py-1.5 text-text-dim">{q.endpoint}</td>
+                  <td className="px-3 py-1.5 text-right text-text-faint">{q.latency_ms ?? '–'} ms</td>
                 </tr>
               ))}
             </tbody>
@@ -169,86 +199,123 @@ export function ResultScreen({ runId, onHome }: { runId: string; onHome: () => v
         </div>
       </Section>
 
-      <p className="mt-10 text-xs text-slate-400">
-        Affinities and entities come from Qloo's Taste AI. Collaborations, content and channels are the
-        agent's proposals built on top of that data.
+      <p className="mt-12 text-[12px] text-text-faint">
+        Affinities and entities come from Qloo's Taste AI (<span className="text-ok">●</span> grounded). Collaborations,
+        content and channels are the agent's proposals on top of that data (<span className="text-warn">◌</span>).
+        “×” figures are relative to this audience's average, not the general population.
       </p>
     </div>
   )
 }
 
-function fmt(n: number | null | undefined): string {
-  return n == null ? '–' : n.toFixed(2)
+/* ---------- helpers ---------- */
+
+function topAff(d: { entities: EntityAffinity[] }): number {
+  return d.entities.length ? Math.max(...d.entities.map((e) => e.affinity)) : 0
+}
+function pct(n?: number | null): string {
+  return n == null ? '–' : String(Math.round(n * 100))
+}
+
+function Wordmark() {
+  return (
+    <div className="flex items-center gap-2 font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-text-dim">
+      <span className="h-1.5 w-1.5 rounded-full bg-accent" />
+      OVERINDEX
+    </div>
+  )
 }
 
 function Dot({ domain }: { domain: string }) {
-  return (
-    <span
-      className="inline-block h-2.5 w-2.5 rounded-full"
-      style={{ background: domainColor(domain) }}
-    />
-  )
+  return <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: domainColor(domain) }} />
 }
 
-function EntityRow({ e }: { e: EntityAffinity }) {
+function HeroFigure({ e }: { e: EntityAffinity }) {
+  const hasLift = e.lift != null && e.lift > 0
   return (
-    <div className="flex items-center gap-3">
-      <Dot domain={e.domain} />
-      <div className="w-40 shrink-0 truncate text-sm text-slate-700 dark:text-slate-300">{e.name}</div>
-      <div className="h-2 flex-1 rounded bg-slate-100 dark:bg-slate-800">
-        <div className="h-2 rounded" style={{ width: `${Math.round(e.affinity * 100)}%`, background: 'var(--aff-4)' }} />
+    <div className="text-center">
+      <div className="text-5xl font-semibold tracking-tight text-text-hi">
+        {hasLift ? `${e.lift!.toFixed(1)}×` : Math.round(e.affinity * 100)}
       </div>
-      <div className="w-24 shrink-0 text-right text-xs text-slate-400">
-        pop {e.popularity == null ? '–' : Math.round(e.popularity * 100)}
+      <div className="mt-1 text-[11px] uppercase tracking-wide text-text-faint">
+        {hasLift ? 'the audience average' : 'affinity'}
       </div>
     </div>
   )
 }
 
-function MiniBar({ name, value }: { name: string; value: number }) {
+function Bridge({ toDomain, affinity }: { toDomain: string; affinity: number }) {
+  const w = 240
+  const h = 64
+  const y = h - 16
+  const sw = 2 + affinity * 4
   return (
-    <div className="flex items-center gap-2">
-      <div className="w-28 shrink-0 truncate text-xs text-slate-600 dark:text-slate-400">{name}</div>
-      <div className="h-1.5 flex-1 rounded bg-slate-100 dark:bg-slate-800">
-        <div className="h-1.5 rounded" style={{ width: `${Math.round(value * 100)}%`, background: 'var(--aff-3)' }} />
+    <svg viewBox={`0 0 ${w} ${h}`} className="mt-4 w-[220px]" aria-hidden>
+      <path
+        d={`M 20 ${y} Q ${w / 2} 8 ${w - 20} ${y}`}
+        fill="none"
+        stroke="var(--color-aff-bar)"
+        strokeWidth={sw}
+        strokeLinecap="round"
+        style={{ strokeDasharray: 360, strokeDashoffset: 360, animation: 'draw 700ms var(--ease-out) forwards' }}
+      />
+      <circle cx="20" cy={y} r="9" fill={domainColor('brand')} />
+      <circle cx={w - 20} cy={y} r="9" fill={domainColor(toDomain)} />
+    </svg>
+  )
+}
+
+function AffinityBar({ e, showLift, compact }: { e: EntityAffinity; showLift?: boolean; compact?: boolean }) {
+  const value = showLift && e.lift != null ? `${e.lift.toFixed(1)}×` : String(Math.round(e.affinity * 100))
+  return (
+    <div className={`grid items-center gap-2.5 ${compact ? 'grid-cols-[1fr_72px_3.5ch]' : 'grid-cols-[14px_1fr_96px_4ch]'}`}>
+      {!compact && <Dot domain={e.domain} />}
+      <div className="truncate text-sm text-text" title={e.name}>
+        {e.name}
       </div>
+      <div className="h-1.5 rounded-full" style={{ background: 'var(--color-aff-track)' }}>
+        <div
+          className="h-1.5 rounded-full transition-[width] duration-500"
+          style={{ width: `${Math.round(e.affinity * 100)}%`, background: 'var(--color-aff-bar)' }}
+        />
+      </div>
+      <div className="mono-num text-right text-[12px] text-text-dim">{value}</div>
     </div>
   )
 }
 
-function Section({ title, tag, sub, children }: { title: string; tag: 'grounded' | 'proposed'; sub?: string; children: ReactNode }) {
+function Prov({ kind }: { kind: 'grounded' | 'proposed' }) {
   return (
-    <section className="mt-10">
-      <div className="mb-3 flex items-center gap-3">
-        <h2 className="text-lg font-semibold text-slate-900 dark:text-white">{title}</h2>
-        <ProvenanceTag tag={tag} />
+    <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim">
+      {kind === 'grounded' ? (
+        <>
+          <span className="text-ok">●</span> Qloo data
+        </>
+      ) : (
+        <>
+          <span className="text-warn">◌</span> Agent proposal
+        </>
+      )}
+    </span>
+  )
+}
+
+function Section({ kind, title, sub, children }: { kind: 'grounded' | 'proposed'; title: string; sub?: string; children: ReactNode }) {
+  return (
+    <section
+      className="mt-12 border-l-2 pl-4"
+      style={{ borderColor: kind === 'grounded' ? 'var(--color-ok)' : 'var(--color-warn)' }}
+    >
+      <div className="flex items-center gap-3">
+        <h2 className="text-xl font-semibold tracking-tight text-text-hi">{title}</h2>
+        <Prov kind={kind} />
       </div>
-      {sub && <p className="mb-3 -mt-2 text-sm text-slate-400">{sub}</p>}
+      {sub && <p className="mt-1 text-sm text-text-dim">{sub}</p>}
       {children}
     </section>
   )
 }
 
-function ProvenanceTag({ tag }: { tag: 'grounded' | 'proposed' }) {
-  return tag === 'grounded' ? (
-    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
-      Qloo data
-    </span>
-  ) : (
-    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300">
-      Agent proposal
-    </span>
-  )
-}
-
 function Centered({ children }: { children: ReactNode }) {
   return <div className="flex min-h-screen flex-col items-center justify-center px-4 text-center">{children}</div>
-}
-
-function HomeButton({ onHome }: { onHome: () => void }) {
-  return (
-    <button onClick={onHome} className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700">
-      Start over
-    </button>
-  )
 }
