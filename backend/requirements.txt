@@ -1,0 +1,14 @@
+# Core
+httpx>=0.27
+python-dotenv>=1.0
+pydantic>=2.7
+pydantic-settings>=2.3
+
+# Backend API
+fastapi>=0.115
+uvicorn[standard]>=0.30
+slowapi>=0.1.9           # per-IP rate limiting
+
+# LLM "brain" — Gemini primary (free tier), current SDK. Groq = seam, not shipped yet.
+google-genai>=0.3
+# groq>=0.11

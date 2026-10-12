@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Node / frontend
+node_modules/
+dist/
+build/
+.vite/
+
+# Qloo response caches + db (must NOT be in the public repo)
+cache/
+data/
+*.db
+*.qloo.json
+
+# Internal planning docs (not public)
+planning/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
