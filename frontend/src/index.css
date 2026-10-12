@@ -1,19 +1,75 @@
 @import "tailwindcss";
 
-/* Design tokens. Affinity/magnitude uses a SINGLE sequential blue ramp (CVD-safe);
-   domain identity is a text-paired accent dot only, never the sole encoding
-   (red-team dataviz rules). */
-:root {
-  --aff-1: #eff6ff;
-  --aff-2: #bfdbfe;
-  --aff-3: #60a5fa;
-  --aff-4: #2563eb;
-  --aff-5: #1e3a8a;
-  /* diverging (polarity) — blue <-> red with a neutral midpoint */
-  --pos: #2563eb;
-  --neg: #dc2626;
-  --mid: #9ca3af;
-  color-scheme: light dark;
+/* ============================================================================
+   Overindex · "Instrument" design system (dark-first; light = graceful fallback).
+   Brand hue = iris (never blue). Affinity magnitude glows in iris. Blue is
+   reserved for the diverging (over/under vs audience avg) scale only.
+   ========================================================================== */
+
+@theme {
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, "JetBrains Mono", monospace;
+
+  --radius-ctl: 8px;
+  --radius-card: 12px;
+  --radius-hero: 16px;
+
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* ---- dark is the authoring target ---- */
+  --color-bg: #0a0b0d;
+  --color-surface-1: #121316;
+  --color-surface-2: #1a1c20;
+  --color-border: rgba(255, 255, 255, 0.08);
+  --color-border-strong: rgba(255, 255, 255, 0.14);
+  --color-inset-hi: rgba(255, 255, 255, 0.04);
+
+  --color-text-hi: #f2f3f5;
+  --color-text: #c7cad1;
+  --color-text-dim: #8a8f98;
+  --color-text-faint: #828893; /* WCAG-safe (critic B4) */
+
+  --color-accent: #7c6cf0; /* iris — the only brand hue; fills/rings */
+  --color-accent-hi: #9a8cf7; /* accent as TEXT (links) */
+  --color-accent-dim: rgba(124, 108, 240, 0.14);
+
+  --color-aff-bar: #7c6cf0;
+  --color-aff-track: #211f3a;
+
+  --color-pos: #3b82f6; /* diverging — blue ONLY here */
+  --color-mid: #4b5058;
+  --color-neg: #ef4444;
+
+  --color-ok: #3fb950;
+  --color-warn: #d29922;
+  --color-err: #f85149;
+}
+
+/* ---- light fallback (OS light); not a shipped toggle, judged in dark ---- */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --color-bg: #fbfbfc;
+    --color-surface-1: #ffffff;
+    --color-surface-2: #f4f4f7;
+    --color-border: rgba(12, 14, 20, 0.1);
+    --color-border-strong: rgba(12, 14, 20, 0.17);
+    --color-inset-hi: rgba(255, 255, 255, 0.9);
+    --color-text-hi: #16181d;
+    --color-text: #3a3e46;
+    --color-text-dim: #6b7079;
+    --color-text-faint: #767c86;
+    --color-accent: #5b4bd6;
+    --color-accent-hi: #4a3bc4;
+    --color-accent-dim: rgba(91, 75, 214, 0.12);
+    --color-aff-bar: #6b5be0;
+    --color-aff-track: #ecebf9;
+    --color-pos: #2563eb;
+    --color-mid: #d4d6dc;
+    --color-neg: #dc2626;
+    --color-ok: #1a7f37;
+    --color-warn: #9a6700;
+    --color-err: #cf222e;
+  }
 }
 
 html,
@@ -21,26 +77,54 @@ body,
 #root {
   height: 100%;
 }
-
 body {
   margin: 0;
-  background: #ffffff;
-  color: #0b0d12;
-  font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-feature-settings: "cv01", "cv03", "ss03";
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-:root:not([data-theme="light"]) {
-  @media (prefers-color-scheme: dark) {
-    body {
-      background: #0b0d12;
-      color: #e5e7eb;
-    }
+/* ===== custom utilities (everything else is Tailwind arbitrary values) ===== */
+@utility card {
+  background: var(--color-surface-1);
+  box-shadow: inset 0 1px 0 var(--color-inset-hi), 0 0 0 1px var(--color-border);
+  border-radius: var(--radius-card);
+}
+@utility glow {
+  box-shadow: 0 0 0 1px var(--color-accent-dim), 0 8px 40px -12px rgba(124, 108, 240, 0.35);
+}
+@utility mono-num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+@utility focus-accent {
+  outline: none;
+  &:focus-visible {
+    box-shadow: 0 0 0 1px var(--color-accent), 0 0 0 4px var(--color-accent-dim);
   }
 }
 
-:root[data-theme="dark"] body {
-  background: #0b0d12;
-  color: #e5e7eb;
+@keyframes pulse-accent {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+@keyframes shimmer {
+  to { transform: translateX(100%); }
+}
+@keyframes draw {
+  to { stroke-dashoffset: 0; }
+}
+@keyframes drop-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }

@@ -61,6 +61,14 @@ def _opportunity(ea: EntityAffinity) -> float:
 
 def build_facts(gathered) -> dict:
     by_domain = _entities_by_domain(gathered)
+    # Honest relative index: how far above this audience's AVERAGE (within a domain)
+    # an entity sits. Labeled "x the audience's average" in the UI — NOT a population
+    # lift (Qloo exposes no population baseline), and never fabricated.
+    for es in by_domain.values():
+        affs = [e.affinity for e in es if e.affinity]
+        mean = sum(affs) / len(affs) if affs else 0.0
+        for e in es:
+            e.lift = round(e.affinity / mean, 2) if mean else None
     domains = [DomainAffinities(domain=d, entities=es) for d, es in by_domain.items()]
     all_ents = [e for es in by_domain.values() for e in es]
     opportunities = sorted(all_ents, key=_opportunity, reverse=True)

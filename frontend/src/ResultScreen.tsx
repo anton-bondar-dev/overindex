@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { getResult } from './api'
-import { DOMAIN_DOT } from './types'
+import { domainColor } from './types'
 import type { AnalysisResult, EntityAffinity } from './types'
 
 export function ResultScreen({ runId, onHome }: { runId: string; onHome: () => void }) {
@@ -185,7 +185,7 @@ function Dot({ domain }: { domain: string }) {
   return (
     <span
       className="inline-block h-2.5 w-2.5 rounded-full"
-      style={{ background: DOMAIN_DOT[domain] || '#94a3b8' }}
+      style={{ background: domainColor(domain) }}
     />
   )
 }

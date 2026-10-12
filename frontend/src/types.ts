@@ -64,13 +64,20 @@ export const TOOL_ENDPOINT: Record<string, string> = {
   get_tags: 'GET /v2/tags',
 }
 
-export const DOMAIN_DOT: Record<string, string> = {
-  artist: '#f472b6',
-  movie: '#f59e0b',
-  tv_show: '#a78bfa',
-  book: '#34d399',
-  brand: '#60a5fa',
-  place: '#22d3ee',
-  podcast: '#fb7185',
-  videogame: '#4ade80',
+// Domain identity is a text-paired dot ONLY, never a data mark. [light, dark].
+// CVD-validated 8-slot set (tv_show = teal; slate failed the validator).
+export const DOMAIN_COLOR: Record<string, [string, string]> = {
+  brand: ['#2a78d6', '#3987e5'],
+  artist: ['#eb6834', '#d95926'],
+  book: ['#1baf7a', '#199e70'],
+  movie: ['#eda100', '#c98500'],
+  place: ['#e87ba4', '#d55181'],
+  videogame: ['#008300', '#008300'],
+  tv_show: ['#0d8ba3', '#0aa6c4'],
+  podcast: ['#e34948', '#e66767'],
+}
+
+/** Dark-mode dot color for a domain (we ship dark). */
+export function domainColor(domain: string): string {
+  return (DOMAIN_COLOR[domain] ?? ['#8a8f98', '#8a8f98'])[1]
 }
