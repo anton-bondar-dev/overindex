@@ -95,7 +95,10 @@ export function ResultScreen({ runId, onHome }: { runId: string; onHome: () => v
       {/* OPPORTUNITIES (grounded) */}
       {result.opportunities.length > 0 && (
         <Section kind="grounded" title="What they quietly over-index on" sub="High affinity, lower reach — the ownable signals.">
-          <div className="mt-3 space-y-1.5">
+          <div className="mt-4 hidden sm:block">
+            <OpportunityScatter items={result.opportunities} />
+          </div>
+          <div className="mt-4 space-y-1.5">
             {result.opportunities.slice(0, 8).map((e) => (
               <AffinityBar key={e.id + e.domain} e={e} showLift />
             ))}
@@ -145,7 +148,7 @@ export function ResultScreen({ runId, onHome }: { runId: string; onHome: () => v
         <Section kind="proposed" title="Collaborations to pursue">
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             {result.collaborations.map((c, i) => (
-              <div key={i} className="card p-4">
+              <div key={i} className="card p-4 transition-transform duration-200 hover:-translate-y-0.5">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 font-medium text-text-hi">
                     <Dot domain={c.entity.domain} /> {c.entity.name}
@@ -173,7 +176,7 @@ export function ResultScreen({ runId, onHome }: { runId: string; onHome: () => v
             </div>
             <div className="space-y-2">
               {result.channels.map((ch, i) => (
-                <div key={i} className="card p-3">
+                <div key={i} className="card p-3 transition-transform duration-200 hover:-translate-y-0.5">
                   <div className="text-sm font-medium text-text-hi">{ch.name}</div>
                   <p className="text-sm text-text-dim">{ch.rationale}</p>
                 </div>
@@ -268,7 +271,7 @@ function Bridge({ toDomain, affinity }: { toDomain: string; affinity: number }) 
 function AffinityBar({ e, showLift, compact }: { e: EntityAffinity; showLift?: boolean; compact?: boolean }) {
   const value = showLift && e.lift != null ? `${e.lift.toFixed(1)}×` : String(Math.round(e.affinity * 100))
   return (
-    <div className={`grid items-center gap-2.5 ${compact ? 'grid-cols-[1fr_72px_3.5ch]' : 'grid-cols-[14px_1fr_96px_4ch]'}`}>
+    <div className={`group grid items-center gap-2.5 rounded-[6px] -mx-2 px-2 py-0.5 transition-colors hover:bg-surface-2 ${compact ? 'grid-cols-[1fr_72px_3.5ch]' : 'grid-cols-[14px_1fr_96px_4ch]'}`}>
       {!compact && <Dot domain={e.domain} />}
       <div className="truncate text-sm text-text" title={e.name}>
         {e.name}
@@ -280,6 +283,65 @@ function AffinityBar({ e, showLift, compact }: { e: EntityAffinity; showLift?: b
         />
       </div>
       <div className="mono-num text-right text-[12px] text-text-dim">{value}</div>
+    </div>
+  )
+}
+
+function oppScore(e: EntityAffinity): number {
+  return e.affinity * (1 - (e.popularity ?? 0.5))
+}
+
+function OpportunityScatter({ items }: { items: EntityAffinity[] }) {
+  const [hover, setHover] = useState<number | null>(null)
+  const pts = items.filter((e) => e.popularity != null)
+  if (pts.length < 3) return null
+  const W = 480, H = 360, L = 48, R = 16, T = 16, B = 40
+  const x = (pop: number) => L + pop * (W - L - R)
+  const y = (aff: number) => T + (1 - aff) * (H - T - B)
+  const labeled = new Set([...pts].sort((a, b) => oppScore(b) - oppScore(a)).slice(0, 4).map((e) => e.id))
+  const hidden = items.length - pts.length
+  const tfaint = { fill: 'var(--color-text-faint)' } as const
+
+  return (
+    <div className="relative">
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full">
+        <rect x={x(0)} y={y(1)} width={x(0.35) - x(0)} height={y(0.6) - y(1)} fill="var(--color-aff-bar)" opacity={0.08} />
+        <rect x={x(0)} y={y(1)} width={x(0.35) - x(0)} height={y(0.6) - y(1)} fill="none" stroke="var(--color-aff-bar)" strokeOpacity={0.3} />
+        <text x={x(0) + 6} y={y(1) + 13} style={{ ...tfaint, fontSize: 9, letterSpacing: '0.08em' }}>OWNABLE</text>
+        <line x1={L} y1={H - B} x2={W - R} y2={H - B} stroke="var(--color-border-strong)" />
+        <line x1={L} y1={T} x2={L} y2={H - B} stroke="var(--color-border-strong)" />
+        <text x={(L + W - R) / 2} y={H - 8} textAnchor="middle" style={{ ...tfaint, fontSize: 10 }}>popularity →</text>
+        <text x={14} y={(T + H - B) / 2} textAnchor="middle" transform={`rotate(-90 14 ${(T + H - B) / 2})`} style={{ ...tfaint, fontSize: 10 }}>affinity →</text>
+        {pts.map((e, i) => {
+          const cx = x(e.popularity as number)
+          const cy = y(e.affinity)
+          return (
+            <g key={e.id} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)} style={{ cursor: 'pointer' }}>
+              <circle cx={cx} cy={cy} r={13} fill="transparent" />
+              <circle cx={cx} cy={cy} r={hover === i ? 7 : 6} fill="var(--color-aff-bar)" fillOpacity={0.4 + oppScore(e) * 0.6} stroke="var(--color-ring)" strokeWidth={2} />
+              {labeled.has(e.id) && hover !== i && (
+                <text x={cx + 9} y={cy + 3} style={{ fill: 'var(--color-text-dim)', fontSize: 10 }}>
+                  {e.name.length > 16 ? e.name.slice(0, 15) + '…' : e.name}
+                </text>
+              )}
+            </g>
+          )
+        })}
+      </svg>
+      {hover != null && pts[hover] && (
+        <div
+          className="pointer-events-none absolute z-10 -translate-x-1/2 -translate-y-full rounded-[6px] border border-border bg-surface-2 px-2 py-1"
+          style={{ left: `${(x(pts[hover].popularity as number) / W) * 100}%`, top: `${(y(pts[hover].affinity) / H) * 100}%`, marginTop: -6 }}
+        >
+          <div className="mono-num whitespace-nowrap text-[11px] text-text-hi">
+            affinity {Math.round(pts[hover].affinity * 100)} · popularity {pct(pts[hover].popularity)}
+          </div>
+          <div className="mt-0.5 flex items-center gap-1 whitespace-nowrap text-[11px] text-text-dim">
+            <Dot domain={pts[hover].domain} /> {pts[hover].name}
+          </div>
+        </div>
+      )}
+      {hidden > 0 && <div className="mt-1 text-[11px] text-text-faint">{hidden} with unknown reach not shown</div>}
     </div>
   )
 }
