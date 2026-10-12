@@ -1,0 +1,46 @@
+@import "tailwindcss";
+
+/* Design tokens. Affinity/magnitude uses a SINGLE sequential blue ramp (CVD-safe);
+   domain identity is a text-paired accent dot only, never the sole encoding
+   (red-team dataviz rules). */
+:root {
+  --aff-1: #eff6ff;
+  --aff-2: #bfdbfe;
+  --aff-3: #60a5fa;
+  --aff-4: #2563eb;
+  --aff-5: #1e3a8a;
+  /* diverging (polarity) — blue <-> red with a neutral midpoint */
+  --pos: #2563eb;
+  --neg: #dc2626;
+  --mid: #9ca3af;
+  color-scheme: light dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #ffffff;
+  color: #0b0d12;
+  font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+:root:not([data-theme="light"]) {
+  @media (prefers-color-scheme: dark) {
+    body {
+      background: #0b0d12;
+      color: #e5e7eb;
+    }
+  }
+}
+
+:root[data-theme="dark"] body {
+  background: #0b0d12;
+  color: #e5e7eb;
+}
