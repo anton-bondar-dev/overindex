@@ -97,8 +97,10 @@ TOOL_DECLARATIONS = [
 async def execute_tool(qloo, name: str, args: dict):
     """Run one tool against Qloo. Returns (response_for_llm, human_summary)."""
     if name == "resolve_entity":
-        extra = {"types": f"urn:entity:{args['type']}"} if args.get("type") else {}
-        resp = await qloo.search(args["name"], **extra)
+        # Always pass a type: an untyped search can resolve to a specific place,
+        # which Qloo rejects as an interest signal. Default to brand.
+        etype = args.get("type") or "brand"
+        resp = await qloo.search(args["name"], types=f"urn:entity:{etype}")
         ents = parsers.search_results(resp)[:5]
         out = [{"id": parsers.entity_id(e), "name": parsers.name_of(e), "popularity": parsers.popularity(e)} for e in ents]
         summary = f"{len(out)} match(es)" + (f"; top: {out[0]['name']}" if out else " — none found")
