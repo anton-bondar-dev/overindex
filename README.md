@@ -23,12 +23,12 @@ The judging bar is "multi-step autonomous tool use," not "an LLM wrapped around 
 endpoint." The distinction lives in who decides the sequence of Qloo calls — and
 here, the **model does**, not a script:
 
-- **It plans and chooses tools.** Given only a brand name, the agent calls
-  `resolve_entity`, reads the result, then decides *which* cultural domains are
-  worth scanning with `affinity_scan` — and justifies each choice in the trace.
-- **It adapts.** It pursues domains where it sees strong, surprising affinities
-  and skips ones that look weak. Two different brands produce two different
-  investigation paths and a different number of calls. Nothing is hard-coded.
+- **It plans and chooses tools.** Given only a brand name, the agent resolves the
+  brand, then decides *which* cultural domains are worth scanning with
+  `affinity_scan` and *when it has seen enough* — its reasoning streams live.
+- **The path varies by brand.** Different brands lead the model to scan different
+  domains, a different number of them, and to stop at different points — the
+  sequence of calls is the model's, not a script's. Nothing is hard-coded.
 - **It recovers.** If a small or new brand isn't in Qloo, the agent resolves 2–3
   *comparable* entities (a peer brand, a cultural anchor its buyers likely share)
   and seeds the investigation from those proxies — a real analyst's move, shown

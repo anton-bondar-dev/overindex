@@ -29,14 +29,18 @@ from llm import oai_text
 from agent_core import run_investigation
 
 POP_FLOOR = 0.15          # blind-spot candidates must be at least this recognizable
+BLIND_POP_CEIL = 0.55     # ...and LOW-popularity: a "blind spot" is ownable, not a mainstream hit
 NATIVE_DOMAIN = "brand"   # the brand's own domain — "cross-domain" means != this
 # A blind-spot hero must be a RECOGNIZABLE media entity — not a niche place (a
 # specific villa/bar) or a brand. Places/brands stay in opportunities + fingerprint.
 BLIND_DOMAINS = {"artist", "movie", "tv_show", "book", "podcast", "videogame"}
+# A COLLABORATION must be a partnerable entity you could actually team up with —
+# not a geographic place or a book.
+COLLAB_DOMAINS = {"brand", "artist", "podcast", "tv_show", "videogame"}
 BLIND_SPOT_MAX_NAME = 50  # the headline blind spot must read as a punchy, recognizable
                           # NAME — not a subtitle-laden 100-char book title that breaks
                           # the hero and reads as noise. Caps the candidate pool only.
-OPP_POP_FLOOR = 0.05      # drop popularity=0 data artifacts from "ownable" ranking
+OPP_POP_FLOOR = 0.12      # drop popularity artifacts / near-unknown noise from the ranking
 COLLAB_POP_CAP = 0.85     # a collaboration must be a non-obvious partner, not a famous rival
 
 _VOL_RE = re.compile(r"\s*[,:–-]?\s*\b(vol\.?|volume|season|part|pt\.?|chapter|episode|ep\.?|no\.?)\s*\d+.*$", re.I)
@@ -86,10 +90,15 @@ def build_facts(gathered, brand: str = "") -> dict:
     by_domain = _entities_by_domain(gathered)
     domains = [DomainAffinities(domain=d, entities=es) for d, es in by_domain.items()]
     all_ents = [e for es in by_domain.values() for e in es]
+    bn = _norm_name(brand)
 
-    # Drop popularity artifacts (0.0 / missing): opportunity = affinity*(1-pop) would
-    # otherwise rank a pop=0 data gap as the #1 "ownable" signal.
-    real = [e for e in all_ents if e.popularity is not None and e.popularity >= OPP_POP_FLOOR]
+    # Keep entities with real popularity above the floor (a pop=0 gap would top the
+    # opportunity ranking), and NEVER the analyzed brand itself — telling a brand its
+    # audience over-indexes on itself is circular. Drops self-reference from
+    # opportunities, defining-tastes, the scatter, blind spot and collabs at once.
+    real = [e for e in all_ents
+            if e.popularity is not None and e.popularity >= OPP_POP_FLOOR
+            and _norm_name(e.name) != bn]
 
     # Franchise/volume normalization: keep the best-scoring entity per (domain, stem)
     # so one series (and its "Vol. N" artifacts) can't flood the lists or the hero.
@@ -99,30 +108,29 @@ def build_facts(gathered, brand: str = "") -> dict:
     deduped = sorted(best_by_stem.values(), key=_opportunity, reverse=True)
     opportunities = deduped[:12]
 
-    # Blind-spot candidates: a recognizable MEDIA entity (not the brand or a niche
-    # place), above the pop floor, punchy name, AND outside the audience's DOMINANT
-    # media domain — so the blind spot is a genuinely different lane, not the brand's
-    # own category in another format (Nike -> basketball).
-    bn = _norm_name(brand)
+    # Blind-spot candidates: a recognizable MEDIA entity, LOW-popularity (ownable — a
+    # floor AND a ceiling, so the hero isn't a mainstream hit), punchy name, AND
+    # outside the audience's DOMINANT media lane (not the brand's own category in
+    # another format, e.g. Nike -> basketball).
     dom_counts = Counter(e.domain for e in deduped[:8] if e.domain in BLIND_DOMAINS)
     dominant = dom_counts.most_common(1)[0][0] if dom_counts else None
 
     def _cand(e, allow_dominant):
         return (e.domain in BLIND_DOMAINS
-                and _norm_name(e.name) != bn
+                and e.popularity is not None
+                and POP_FLOOR <= e.popularity <= BLIND_POP_CEIL
                 and (allow_dominant or e.domain != dominant)
-                and (e.popularity is None or e.popularity >= POP_FLOOR)
                 and bool(e.name) and len(e.name) <= BLIND_SPOT_MAX_NAME)
 
     blind_candidates = [e for e in deduped if _cand(e, allow_dominant=False)]
-    if not blind_candidates:  # nothing outside the dominant lane — relax
+    if not blind_candidates:  # nothing outside the dominant lane — relax THAT first (not the pop cap)
         blind_candidates = [e for e in deduped if _cand(e, allow_dominant=True)]
 
-    # Collaboration candidates: ownable (pop-capped) and never the brand itself — a
-    # collab should be a non-obvious partner, not "team up with your biggest rival".
+    # Collaboration candidates: a PARTNERABLE entity you could actually team up with
+    # (a brand/artist/show/game/podcast — not a place or a book), ownable (pop-capped).
     collab_candidates = [
         e for e in deduped
-        if (e.popularity is None or e.popularity <= COLLAB_POP_CAP) and _norm_name(e.name) != bn
+        if e.domain in COLLAB_DOMAINS and (e.popularity is None or e.popularity <= COLLAB_POP_CAP)
     ][:10]
 
     return {
@@ -185,12 +193,13 @@ Write a marketing playbook as JSON with EXACTLY these keys:
   "persona_name": "short evocative name for the audience",
   "persona_narrative": "2-3 sentences. Describe their cultural taste. Do NOT state age, gender, income or location — we have no demographic data.",
   "blind_spot_name": "pick ONE name from the BLIND-SPOT candidates",
-  "blind_spot_line": "one memorable sentence about that surprising affinity",
-  "collaborations": [{{"entity_name": "<name from the COLLABORATION candidates>", "pitch": "one concrete line"}}],
+  "blind_spot_line": "one memorable sentence about what this audience over-indexing on it reveals about them",
+  "collaborations": [{{"entity_name": "<name from the COLLABORATION candidates>", "pitch": "one concrete idea for the brand to collaborate WITH it"}}],
   "content_themes": [{{"title": "...", "rationale": "..."}}],
   "channels": [{{"name": "...", "rationale": "..."}}]
 }}
-Give 3 collaborations (ONLY from the collaboration candidates — never the brand itself or a famous rival), 3 content_themes, 3 channels. Only reference entity names that appear above.
+Give UP TO 3 collaborations (ONLY from the collaboration candidates — never the brand itself or a famous rival; fewer is fine), 3 content_themes, 3 channels. Only reference entity names that appear above.
+IMPORTANT: you only know each entity's NAME and DOMAIN (e.g. tv_show, podcast, artist). Do NOT assert what any entity is about — its plot, topic, or themes — you would be guessing. Write only about the AUDIENCE and the brand-to-entity relationship.
 Return ONLY the JSON."""
 
     resp = await llm.generate(
@@ -246,7 +255,7 @@ def assemble(brand: str, facts: dict, proposed: dict, qloo_calls=None, resolutio
             entity=e,
             arbitrage=round(e.affinity * (1 - pop), 3),
             cross_domain=(e.domain != NATIVE_DOMAIN),
-            pitch=pitch,
+            pitch=pitch or f"Pair {brand} with {e.name}, a {e.domain} its audience quietly over-indexes on.",
         ))
 
     persona = Persona(

@@ -73,6 +73,16 @@ export function ResultScreen({ runId, onHome }: { runId: string; onHome: () => v
             <div className="mt-2 font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-warn">◌ the agent's reading</div>
           </>
         )}
+        {result.persona?.defining_tastes && result.persona.defining_tastes.length > 0 && (
+          <div className="mt-4 flex flex-wrap items-center gap-1.5">
+            <span className="mr-1 font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-ok">● defining tastes</span>
+            {result.persona.defining_tastes.slice(0, 5).map((e) => (
+              <span key={e.id + e.domain} className="flex items-center gap-1.5 rounded-full border border-border px-2 py-0.5 font-mono text-[11px] text-text">
+                <Dot domain={e.domain} /> <EntityLink name={e.name} />
+              </span>
+            ))}
+          </div>
+        )}
         <div className="mono-num mt-4 text-[13px] text-text-dim">{stat}</div>
       </header>
 
@@ -404,7 +414,9 @@ function OpportunityScatter({ items }: { items: EntityAffinity[] }) {
   const p0 = pLo - pPad, p1 = pHi + pPad
   const x = (pop: number) => L + ((pop - p0) / (p1 - p0)) * (W - L - R)
   const y = (aff: number) => T + (1 - (aff - a0) / (a1 - a0)) * (H - T - B)
-  const ownableX = p0 + (p1 - p0) * 0.4   // low-popularity (left) zone = most ownable
+  const OWNABLE_POP = 0.33                 // ABSOLUTE: popularity <= 33% = ownable (not a per-result percentile)
+  const showOwnable = OWNABLE_POP > p0     // only shade if some of the visible range is actually ownable
+  const ownableRight = x(Math.min(OWNABLE_POP, p1))
   const hidden = items.length - pts.length
   const tfaint = { fill: 'var(--color-text-faint)' } as const
   // No direct per-point labels: labelling only a few points reads as a bug, and
@@ -412,11 +424,12 @@ function OpportunityScatter({ items }: { items: EntityAffinity[] }) {
   // way — on hover (the tooltip below).
 
   return (
-    <div className="relative">
+    <div>
+      <div className="relative">
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full">
-        <rect x={L} y={T} width={x(ownableX) - L} height={H - B - T} fill="var(--color-aff-bar)" opacity={0.07} />
-        <line x1={x(ownableX)} y1={T} x2={x(ownableX)} y2={H - B} stroke="var(--color-aff-bar)" strokeOpacity={0.25} strokeDasharray="3 3" />
-        <text x={L + 6} y={T + 13} style={{ ...tfaint, fontSize: 9, letterSpacing: '0.08em' }}>OWNABLE</text>
+        {showOwnable && <rect x={L} y={T} width={ownableRight - L} height={H - B - T} fill="var(--color-aff-bar)" opacity={0.07} />}
+        {showOwnable && <line x1={ownableRight} y1={T} x2={ownableRight} y2={H - B} stroke="var(--color-aff-bar)" strokeOpacity={0.25} strokeDasharray="3 3" />}
+        {showOwnable && <text x={L + 6} y={T + 13} style={{ ...tfaint, fontSize: 9, letterSpacing: '0.08em' }}>OWNABLE (pop ≤ 33)</text>}
         <line x1={L} y1={H - B} x2={W - R} y2={H - B} stroke="var(--color-border-strong)" />
         <line x1={L} y1={T} x2={L} y2={H - B} stroke="var(--color-border-strong)" />
         <text x={(L + W - R) / 2} y={H - 8} textAnchor="middle" style={{ ...tfaint, fontSize: 10 }}>popularity →</text>
@@ -427,7 +440,7 @@ function OpportunityScatter({ items }: { items: EntityAffinity[] }) {
           return (
             <g key={e.id} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)} onClick={() => setHover((h) => (h === i ? null : i))} style={{ cursor: 'pointer' }}>
               <circle cx={cx} cy={cy} r={13} fill="transparent" />
-              <circle cx={cx} cy={cy} r={hover === i ? 7 : 6} fill="var(--color-aff-bar)" fillOpacity={0.4 + oppScore(e) * 0.6} stroke="var(--color-ring)" strokeWidth={2} />
+              <circle cx={cx} cy={cy} r={hover === i ? 7 : 6} fill="var(--color-aff-bar)" fillOpacity={0.4 + oppScore(e) * 0.6} stroke="var(--color-bg)" strokeWidth={2} />
             </g>
           )
         })}
@@ -446,6 +459,7 @@ function OpportunityScatter({ items }: { items: EntityAffinity[] }) {
           </div>
         </div>
       )}
+      </div>
       <div className="mt-1 flex justify-between text-[11px] text-text-faint">
         <span>Tap or hover a point for detail</span>
         {hidden > 0 && <span>{hidden} with unknown reach not shown</span>}

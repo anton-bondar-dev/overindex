@@ -112,7 +112,7 @@ export function RunScreen({ runId, onDone, onHome }: { runId: string; onDone: ()
           </div>
           <div className="flex items-center gap-4 font-mono text-xs tabular-nums text-text-dim">
             <span>{mmss}</span>
-            <span>{steps.length} / ~6 calls</span>
+            <span>{steps.length} Qloo calls</span>
             <button onClick={onHome} className="transition-colors hover:text-accent-hi">↩ start over</button>
           </div>
         </div>

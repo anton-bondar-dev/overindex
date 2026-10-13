@@ -112,12 +112,21 @@ _RL_MESSAGES = {
 }
 
 
+def _client_ip(request: Request) -> str:
+    """Real client IP behind the nginx proxy (X-Forwarded-For / X-Real-IP), so the
+    per-IP limiter keys on the visitor, not on 127.0.0.1."""
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        return xff.split(",")[0].strip()
+    return (request.headers.get("x-real-ip") or (request.client.host if request.client else "unknown")).strip()
+
+
 def _reserve_live_run(ip: str) -> str | None:
     """Reserve a slot for a live (quota-spending) run, or return a rejection key."""
     global _live_runs
     now = time.monotonic()
-    if len(_ip_window) > 2048:  # bound the per-IP table: drop windows that emptied out
-        for k in [k for k, v in _ip_window.items() if not v]:
+    if len(_ip_window) > 2048:  # bound the per-IP table: drop empty OR stale (>60s) windows
+        for k in [k for k, v in _ip_window.items() if not v or now - v[-1] > 60]:
             _ip_window.pop(k, None)
     dq = _ip_window[ip]
     while dq and now - dq[0] > 60:
@@ -216,7 +225,7 @@ async def start_analyze(body: AnalyzeIn, request: Request):
         asyncio.create_task(_replay(run_id, cached))    # frozen real run — always free
         return {"run_id": run_id}
     # Live path spends shared Groq + Qloo quota — rate-limit it.
-    ip = request.client.host if request.client else "unknown"
+    ip = _client_ip(request)
     reason = _reserve_live_run(ip)
     if reason:
         raise HTTPException(429, _RL_MESSAGES[reason])

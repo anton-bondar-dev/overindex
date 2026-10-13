@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     # chain falls through on overload.
     groq_api_key: str = ""              # single key
     groq_api_keys: str = ""             # comma-separated pool (rotate on 429)
-    groq_models: str = "openai/gpt-oss-120b,openai/gpt-oss-20b,qwen/qwen3.8-27b"
+    groq_models: str = "openai/gpt-oss-120b,openai/gpt-oss-20b"
 
     # Limits — protect the Qloo budget AND the Groq free-tier (8k tokens/min) quota
     max_qloo_concurrency: int = 5          # parallel in-flight Qloo calls

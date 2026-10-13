@@ -22,9 +22,6 @@ export type EntityAffinity = {
   domain: string
   affinity: number
   popularity?: number | null
-  lift?: number | null
-  image?: string | null
-  tags?: string[]
 }
 
 export type DomainAffinities = { domain: string; entities: EntityAffinity[] }
@@ -35,8 +32,8 @@ export type Collaboration = {
   cross_domain: boolean
   pitch: string
 }
-export type ContentTheme = { title: string; rationale: string; angles?: string[] }
-export type Channel = { name: string; fit?: number | null; rationale: string }
+export type ContentTheme = { title: string; rationale: string }
+export type Channel = { name: string; rationale: string }
 export type Persona = { name: string; narrative: string; defining_tastes: EntityAffinity[] }
 export type QlooCall = {
   endpoint: string
