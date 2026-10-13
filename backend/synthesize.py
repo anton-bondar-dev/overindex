@@ -195,16 +195,9 @@ Return ONLY the JSON."""
 
     resp = await llm.generate(
         [{"role": "user", "content": prompt}],
-        max_output_tokens=4096, temperature=0.85,
+        max_output_tokens=3072, temperature=0.85,
     )
-    proposed = _parse_json(oai_text(resp))
-    if not proposed.get("persona_name"):  # empty/truncated (reasoning ate the budget) — retry once
-        resp = await llm.generate(
-            [{"role": "user", "content": prompt}],
-            max_output_tokens=4096, temperature=0.6,
-        )
-        proposed = _parse_json(oai_text(resp))
-    return proposed
+    return _parse_json(oai_text(resp))
 
 
 def assemble(brand: str, facts: dict, proposed: dict, qloo_calls=None, resolution=None) -> AnalysisResult:
