@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import sys
 from pathlib import Path
 
 from config import settings
@@ -21,9 +22,19 @@ from qloo import get_qloo_client
 from synthesize import analyze
 
 CACHE_DIR = Path(__file__).parent / "cache"
+PER_BRAND_TIMEOUT = 150  # abort a single brand that the slow LLM endpoint wedges
 
-# Keep in lock-step with EXAMPLES in frontend/src/InputScreen.tsx.
-EXAMPLES = ["Patagonia", "A24", "Blue Bottle Coffee", "Liquid Death"]
+# Brands judges are likely to TYPE (not just the 4 input chips) all REPLAY a frozen
+# real run -> instant and quota-free, which matters because Gemini is heavily
+# throttled from the demo host. Generate this cache from a FAST network (locally),
+# then rsync backend/cache/ to the server. Pass brands as args to warm a subset.
+EXAMPLES = [
+    "Patagonia", "A24", "Blue Bottle Coffee", "Liquid Death",
+    "Nike", "Spotify", "Notion", "Glossier", "Duolingo", "Allbirds",
+    "Aesop", "Supreme", "Oatly", "Trader Joe's", "Red Bull", "Starbucks",
+    "Netflix", "Tesla", "Rivian", "Lululemon", "Chipotle", "Airbnb",
+    "Figma", "Warby Parker",
+]
 
 
 def _slug(brand: str) -> str:
@@ -37,7 +48,9 @@ async def warm_one(brand: str) -> None:
         events.append(ev)
 
     async with get_qloo_client() as qloo, GeminiPool() as llm:
-        result = await analyze(brand, qloo, llm, emit=emit)
+        result = await asyncio.wait_for(
+            analyze(brand, qloo, llm, emit=emit), timeout=PER_BRAND_TIMEOUT
+        )
 
     payload = {"brand": brand, "events": events, "result": result.model_dump()}
     CACHE_DIR.mkdir(exist_ok=True)
@@ -59,8 +72,9 @@ async def main() -> None:
     if settings.use_mock_qloo:
         print("REFUSING: USE_MOCK_QLOO=1 — cache would be synthetic. Set USE_MOCK_QLOO=0.")
         return
-    print(f"Pre-warming {len(EXAMPLES)} examples into {CACHE_DIR} ...")
-    for brand in EXAMPLES:
+    brands = sys.argv[1:] or EXAMPLES
+    print(f"Pre-warming {len(brands)} brand(s) into {CACHE_DIR} ...")
+    for brand in brands:
         try:
             await warm_one(brand)
         except Exception as exc:  # noqa: BLE001 - report and continue to the next

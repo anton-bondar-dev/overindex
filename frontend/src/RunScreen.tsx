@@ -4,6 +4,7 @@ import { TOOL_ENDPOINT } from './types'
 import type { RunEvent } from './types'
 
 type Step = {
+  id?: string
   tool: string
   args: Record<string, unknown>
   summary?: string
@@ -15,15 +16,21 @@ function toSteps(events: RunEvent[]): Step[] {
   const steps: Step[] = []
   for (const ev of events) {
     if (ev.type === 'step_start') {
-      steps.push({ tool: ev.tool || '?', args: ev.args || {}, status: 'running' })
+      steps.push({ id: ev.id, tool: ev.tool || '?', args: ev.args || {}, status: 'running' })
     } else if (ev.type === 'step_result') {
-      for (let i = steps.length - 1; i >= 0; i--) {
-        if (steps[i].tool === ev.tool && steps[i].status === 'running') {
-          steps[i].summary = ev.summary
-          steps[i].latency_ms = ev.latency_ms
-          steps[i].status = ev.status === 'error' ? 'error' : 'ok'
-          break
+      // Steps can now run concurrently, so match a result to its start by id;
+      // fall back to the last running step with the same tool for id-less
+      // (older / cached-example) events.
+      let i = ev.id ? steps.findIndex((s) => s.id === ev.id) : -1
+      if (i < 0) {
+        for (let j = steps.length - 1; j >= 0; j--) {
+          if (steps[j].tool === ev.tool && steps[j].status === 'running') { i = j; break }
         }
+      }
+      if (i >= 0) {
+        steps[i].summary = ev.summary
+        steps[i].latency_ms = ev.latency_ms
+        steps[i].status = ev.status === 'error' ? 'error' : 'ok'
       }
     }
   }

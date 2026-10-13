@@ -2,6 +2,7 @@
 
 export type RunEvent = {
   type: string
+  id?: string
   tool?: string
   args?: Record<string, unknown>
   summary?: string

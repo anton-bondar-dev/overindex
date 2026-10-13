@@ -11,6 +11,7 @@ and cut to fund genuine agency + keep the loop cheap).
 """
 from __future__ import annotations
 
+import asyncio
 import time
 
 from qloo import parsers
@@ -27,16 +28,18 @@ How to work:
    resolve 2-3 comparable entities (a peer brand + a cultural anchor its buyers
    likely share) and use those as proxies — this is expected for small/new brands,
    not a failure. Say when you do it.
-2. Investigate like an analyst, not a script: scan the domains you judge most
-   relevant with affinity_scan, then ADAPT — pursue domains where you see strong,
-   surprising affinities; skip domains that look weak. Briefly explain each choice.
-3. Qloo gives affinity (0-1 relevance of an entity to this audience) and popularity.
-   The interesting signals are HIGH affinity + relatively LOW popularity (ownable,
+2. Then scan FAST and in PARALLEL. In your next turn, request affinity_scan for
+   ALL the domains you judge relevant AT ONCE — emit several affinity_scan calls
+   in a SINGLE response (they run concurrently). Choose the 5-7 domains most likely
+   to reveal this audience; skip ones unlikely to matter. One short line on why.
+3. Qloo gives affinity (0-1 relevance to this audience) and popularity (0-1). The
+   interesting signal is HIGH affinity + relatively LOW popularity (ownable,
    non-obvious). Watch for a cross-domain "blind spot" — a surprising entity the
    brand would never guess.
-4. Aim for ~8-14 tool calls total. When you have enough across several domains to
-   describe the audience and find a non-obvious insight, STOP calling tools and
-   reply with a short plain-text note that you're done.
+4. After reviewing the results, do AT MOST one more short scan round for a
+   promising domain, then STOP and reply with a one-line note that you're done.
+   Aim for ~2-3 turns total (~6-10 tool calls) — investigate in parallel, not one
+   domain at a time. Speed matters.
 
 Think step by step; keep reasoning short and concrete."""
 
@@ -153,26 +156,38 @@ async def run_investigation(brand: str, qloo, llm, emit=None, max_steps: int = 1
             break
 
         contents.append(model_turn(resp))
-        fr_parts = []
+
+        # Announce every call in this turn, then run them CONCURRENTLY. Qloo calls
+        # are independent, so batching the domain scans into one turn and running
+        # them in parallel is what turns a ~90s sequential ReAct crawl into a
+        # ~15s investigation. Each step carries an id so the UI matches a result
+        # to its start even when several run at once.
+        batch = []
         for c in calls:
             steps += 1
-            name, args = c["name"], (c.get("args") or {})
-            await _emit({"type": "step_start", "tool": name, "args": args})
+            sid = f"s{steps}"
+            args = c.get("args") or {}
+            batch.append((sid, c["name"], args, c.get("id")))
+            await _emit({"type": "step_start", "id": sid, "tool": c["name"], "args": args})
+
+        async def _run(sid, name, args, call_id):
             t0 = time.monotonic()
             try:
                 result, summary = await execute_tool(qloo, name, args)
                 dt = int((time.monotonic() - t0) * 1000)
-                await _emit({"type": "step_result", "tool": name, "summary": summary, "latency_ms": dt})
+                await _emit({"type": "step_result", "id": sid, "tool": name, "summary": summary, "latency_ms": dt})
                 trace.append({"type": "step", "tool": name, "args": args, "summary": summary, "latency_ms": dt})
                 gathered.append({"tool": name, "args": args, "result": result})
             except Exception as exc:
                 result = {"error": str(exc)}
-                await _emit({"type": "step_result", "tool": name, "summary": f"error: {exc}", "status": "error"})
+                await _emit({"type": "step_result", "id": sid, "tool": name, "summary": f"error: {exc}", "status": "error"})
             fr = {"name": name, "response": result}
-            if c.get("id"):
-                fr["id"] = c["id"]
-            fr_parts.append({"functionResponse": fr})
-        contents.append({"role": "user", "parts": fr_parts})
+            if call_id:
+                fr["id"] = call_id
+            return {"functionResponse": fr}
+
+        fr_parts = await asyncio.gather(*[_run(*b) for b in batch])
+        contents.append({"role": "user", "parts": list(fr_parts)})
 
     await _emit({"type": "gathered", "count": len(gathered)})
     return {
