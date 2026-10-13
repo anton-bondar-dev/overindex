@@ -81,7 +81,7 @@ export function ResultScreen({ runId, onHome }: { runId: string; onHome: () => v
               <p className="mt-3 text-xl font-medium leading-snug text-text-hi">{bs.line}</p>
               <div className="mono-num mt-4 flex items-center gap-2 text-[13px] text-text-dim">
                 <Dot domain={bs.entity.domain} />
-                {bs.entity.name} · {bs.entity.domain}
+                <EntityLink name={bs.entity.name} /> · {bs.entity.domain}
               </div>
             </div>
             <div className="flex flex-col items-center">
@@ -100,7 +100,7 @@ export function ResultScreen({ runId, onHome }: { runId: string; onHome: () => v
           </div>
           <div className="mt-4 space-y-1.5">
             {result.opportunities.slice(0, 8).map((e) => (
-              <AffinityBar key={e.id + e.domain} e={e} showLift />
+              <AffinityBar key={e.id + e.domain} e={e} />
             ))}
           </div>
         </Section>
@@ -131,7 +131,7 @@ export function ResultScreen({ runId, onHome }: { runId: string; onHome: () => v
                   d.entities.slice(0, 5).map((e) => (
                     <tr key={e.id} className="border-b border-border last:border-0">
                       <td className="px-3 py-1 text-text-dim">{e.domain}</td>
-                      <td className="px-3 py-1 text-text">{e.name}</td>
+                      <td className="px-3 py-1 text-text"><EntityLink name={e.name} /></td>
                       <td className="px-3 py-1 text-right text-text-dim">{e.affinity.toFixed(2)}</td>
                       <td className="px-3 py-1 text-right text-text-faint">pop {pct(e.popularity)}</td>
                     </tr>
@@ -151,7 +151,7 @@ export function ResultScreen({ runId, onHome }: { runId: string; onHome: () => v
               <div key={i} className="card p-4 transition-transform duration-200 hover:-translate-y-0.5">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 font-medium text-text-hi">
-                    <Dot domain={c.entity.domain} /> {c.entity.name}
+                    <Dot domain={c.entity.domain} /> <EntityLink name={c.entity.name} />
                   </div>
                   <span className="mono-num text-[12px] text-text-dim">{c.arbitrage.toFixed(2)}</span>
                 </div>
@@ -203,9 +203,10 @@ export function ResultScreen({ runId, onHome }: { runId: string; onHome: () => v
       </Section>
 
       <p className="mt-12 text-[12px] text-text-faint">
-        Affinities and entities come from Qloo's Taste AI (<span className="text-ok">●</span> grounded). Collaborations,
-        content and channels are the agent's proposals on top of that data (<span className="text-warn">◌</span>).
-        “×” figures are relative to this audience's average, not the general population.
+        Scores are Qloo Taste AI signals — affinity (0–100, relevance to this audience) and popularity (0–100,
+        general reach). Entities and affinities are grounded in Qloo (<span className="text-ok">●</span>); collaborations,
+        content and channels are the agent's proposals on top of that data (<span className="text-warn">◌</span>). Entity
+        names link to a web search.
       </p>
     </div>
   )
@@ -218,6 +219,26 @@ function topAff(d: { entities: EntityAffinity[] }): number {
 }
 function pct(n?: number | null): string {
   return n == null ? '–' : String(Math.round(n * 100))
+}
+
+function searchUrl(name: string): string {
+  return `https://www.google.com/search?q=${encodeURIComponent(name)}`
+}
+
+/** Entity names link out to a web search — so a curious reader (or a judge) can
+ *  see what a surprising, niche or truncated title actually is. */
+function EntityLink({ name, className }: { name: string; className?: string }) {
+  return (
+    <a
+      href={searchUrl(name)}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={name}
+      className={`transition-colors hover:text-accent-hi hover:underline underline-offset-2 ${className ?? ''}`}
+    >
+      {name}
+    </a>
+  )
 }
 
 function Wordmark() {
@@ -234,15 +255,15 @@ function Dot({ domain }: { domain: string }) {
 }
 
 function HeroFigure({ e }: { e: EntityAffinity }) {
-  const hasLift = e.lift != null && e.lift > 0
+  // Honest magnitude: Qloo's raw 0–100 affinity (how much THIS audience is into
+  // it) alongside its general popularity. The gap between the two — loved yet
+  // niche — is the over-index, shown rather than reduced to a fake multiplier.
+  const pop = e.popularity != null ? Math.round(e.popularity * 100) : null
   return (
     <div className="text-center">
-      <div className="text-5xl font-semibold tracking-tight text-text-hi">
-        {hasLift ? `${e.lift!.toFixed(1)}×` : Math.round(e.affinity * 100)}
-      </div>
-      <div className="mt-1 text-[11px] uppercase tracking-wide text-text-faint">
-        {hasLift ? 'the audience average' : 'affinity'}
-      </div>
+      <div className="mono-num text-5xl font-semibold tracking-tight text-text-hi">{Math.round(e.affinity * 100)}</div>
+      <div className="mt-1 text-[11px] uppercase tracking-wide text-text-faint">audience affinity</div>
+      {pop != null && <div className="mono-num mt-2 text-[11px] text-text-dim">{pop} popularity</div>}
     </div>
   )
 }
@@ -268,21 +289,18 @@ function Bridge({ toDomain, affinity }: { toDomain: string; affinity: number }) 
   )
 }
 
-function AffinityBar({ e, showLift, compact }: { e: EntityAffinity; showLift?: boolean; compact?: boolean }) {
-  const value = showLift && e.lift != null ? `${e.lift.toFixed(1)}×` : String(Math.round(e.affinity * 100))
+function AffinityBar({ e, compact }: { e: EntityAffinity; compact?: boolean }) {
   return (
     <div className={`group grid items-center gap-2.5 rounded-[6px] -mx-2 px-2 py-0.5 transition-colors hover:bg-surface-2 ${compact ? 'grid-cols-[1fr_72px_3.5ch]' : 'grid-cols-[14px_1fr_96px_4ch]'}`}>
       {!compact && <Dot domain={e.domain} />}
-      <div className="truncate text-sm text-text" title={e.name}>
-        {e.name}
-      </div>
+      <EntityLink name={e.name} className="block truncate text-sm text-text" />
       <div className="h-1.5 rounded-full" style={{ background: 'var(--color-aff-track)' }}>
         <div
           className="h-1.5 rounded-full transition-[width] duration-500"
           style={{ width: `${Math.round(e.affinity * 100)}%`, background: 'var(--color-aff-bar)' }}
         />
       </div>
-      <div className="mono-num text-right text-[12px] text-text-dim">{value}</div>
+      <div className="mono-num text-right text-[12px] text-text-dim">{Math.round(e.affinity * 100)}</div>
     </div>
   )
 }
@@ -296,8 +314,21 @@ function OpportunityScatter({ items }: { items: EntityAffinity[] }) {
   const pts = items.filter((e) => e.popularity != null)
   if (pts.length < 3) return null
   const W = 480, H = 360, L = 48, R = 16, T = 16, B = 40
-  const x = (pop: number) => L + pop * (W - L - R)
-  const y = (aff: number) => T + (1 - aff) * (H - T - B)
+  // Auto-scale both axes to the data range (+pad). Qloo affinities among the top
+  // opportunities cluster tightly (~0.90–0.98); on a fixed 0–1 axis every point
+  // collapses into a thin strip at the top. Scaling to the actual spread makes
+  // it a real scatter.
+  const affs = pts.map((e) => e.affinity)
+  const pops = pts.map((e) => e.popularity as number)
+  const aLo = Math.min(...affs), aHi = Math.max(...affs)
+  const pLo = Math.min(...pops), pHi = Math.max(...pops)
+  const aPad = (aHi - aLo) * 0.15 || 0.02
+  const pPad = (pHi - pLo) * 0.15 || 0.02
+  const a0 = aLo - aPad, a1 = aHi + aPad
+  const p0 = pLo - pPad, p1 = pHi + pPad
+  const x = (pop: number) => L + ((pop - p0) / (p1 - p0)) * (W - L - R)
+  const y = (aff: number) => T + (1 - (aff - a0) / (a1 - a0)) * (H - T - B)
+  const ownableX = p0 + (p1 - p0) * 0.4   // low-popularity (left) zone = most ownable
   const hidden = items.length - pts.length
   const tfaint = { fill: 'var(--color-text-faint)' } as const
   // greedy non-overlapping direct labels for the most-ownable points
@@ -315,9 +346,9 @@ function OpportunityScatter({ items }: { items: EntityAffinity[] }) {
   return (
     <div className="relative">
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full">
-        <rect x={x(0)} y={y(1)} width={x(0.35) - x(0)} height={y(0.6) - y(1)} fill="var(--color-aff-bar)" opacity={0.08} />
-        <rect x={x(0)} y={y(1)} width={x(0.35) - x(0)} height={y(0.6) - y(1)} fill="none" stroke="var(--color-aff-bar)" strokeOpacity={0.3} />
-        <text x={x(0) + 6} y={y(1) + 13} style={{ ...tfaint, fontSize: 9, letterSpacing: '0.08em' }}>OWNABLE</text>
+        <rect x={L} y={T} width={x(ownableX) - L} height={H - B - T} fill="var(--color-aff-bar)" opacity={0.07} />
+        <line x1={x(ownableX)} y1={T} x2={x(ownableX)} y2={H - B} stroke="var(--color-aff-bar)" strokeOpacity={0.25} strokeDasharray="3 3" />
+        <text x={L + 6} y={T + 13} style={{ ...tfaint, fontSize: 9, letterSpacing: '0.08em' }}>OWNABLE</text>
         <line x1={L} y1={H - B} x2={W - R} y2={H - B} stroke="var(--color-border-strong)" />
         <line x1={L} y1={T} x2={L} y2={H - B} stroke="var(--color-border-strong)" />
         <text x={(L + W - R) / 2} y={H - 8} textAnchor="middle" style={{ ...tfaint, fontSize: 10 }}>popularity →</text>
@@ -341,7 +372,7 @@ function OpportunityScatter({ items }: { items: EntityAffinity[] }) {
               textAnchor={left ? 'end' : 'start'}
               style={{ fill: 'var(--color-text-dim)', fontSize: 10 }}
             >
-              {e.name.length > 11 ? e.name.slice(0, 10) + '…' : e.name}
+              {e.name.length > 16 ? e.name.slice(0, 15) + '…' : e.name}
             </text>
           ),
         )}
