@@ -30,6 +30,9 @@ from agent_core import run_investigation
 
 POP_FLOOR = 0.15          # blind-spot candidates must be at least this recognizable
 NATIVE_DOMAIN = "brand"   # the brand's own domain — "cross-domain" means != this
+# A blind-spot hero must be a RECOGNIZABLE media entity — not a niche place (a
+# specific villa/bar) or a brand. Places/brands stay in opportunities + fingerprint.
+BLIND_DOMAINS = {"artist", "movie", "tv_show", "book", "podcast", "videogame"}
 BLIND_SPOT_MAX_NAME = 50  # the headline blind spot must read as a punchy, recognizable
                           # NAME — not a subtitle-laden 100-char book title that breaks
                           # the hero and reads as noise. Caps the candidate pool only.
@@ -96,17 +99,20 @@ def build_facts(gathered, brand: str = "") -> dict:
     deduped = sorted(best_by_stem.values(), key=_opportunity, reverse=True)
     opportunities = deduped[:12]
 
-    # Blind-spot candidates: cross-domain, recognizable (pop floor), punchy name, AND
-    # outside the audience's DOMINANT media domain — so the blind spot is a genuinely
-    # different lane, not the brand's own category in another format (Nike -> basketball).
-    dom_counts = Counter(e.domain for e in deduped[:8])
+    # Blind-spot candidates: a recognizable MEDIA entity (not the brand or a niche
+    # place), above the pop floor, punchy name, AND outside the audience's DOMINANT
+    # media domain — so the blind spot is a genuinely different lane, not the brand's
+    # own category in another format (Nike -> basketball).
+    bn = _norm_name(brand)
+    dom_counts = Counter(e.domain for e in deduped[:8] if e.domain in BLIND_DOMAINS)
     dominant = dom_counts.most_common(1)[0][0] if dom_counts else None
 
     def _cand(e, allow_dominant):
-        return (e.domain != NATIVE_DOMAIN
+        return (e.domain in BLIND_DOMAINS
+                and _norm_name(e.name) != bn
                 and (allow_dominant or e.domain != dominant)
                 and (e.popularity is None or e.popularity >= POP_FLOOR)
-                and e.name and len(e.name) <= BLIND_SPOT_MAX_NAME)
+                and bool(e.name) and len(e.name) <= BLIND_SPOT_MAX_NAME)
 
     blind_candidates = [e for e in deduped if _cand(e, allow_dominant=False)]
     if not blind_candidates:  # nothing outside the dominant lane — relax
@@ -114,7 +120,6 @@ def build_facts(gathered, brand: str = "") -> dict:
 
     # Collaboration candidates: ownable (pop-capped) and never the brand itself — a
     # collab should be a non-obvious partner, not "team up with your biggest rival".
-    bn = _norm_name(brand)
     collab_candidates = [
         e for e in deduped
         if (e.popularity is None or e.popularity <= COLLAB_POP_CAP) and _norm_name(e.name) != bn
@@ -190,9 +195,16 @@ Return ONLY the JSON."""
 
     resp = await llm.generate(
         [{"role": "user", "content": prompt}],
-        max_output_tokens=3072, temperature=0.85,
+        max_output_tokens=4096, temperature=0.85,
     )
-    return _parse_json(oai_text(resp))
+    proposed = _parse_json(oai_text(resp))
+    if not proposed.get("persona_name"):  # empty/truncated (reasoning ate the budget) — retry once
+        resp = await llm.generate(
+            [{"role": "user", "content": prompt}],
+            max_output_tokens=4096, temperature=0.6,
+        )
+        proposed = _parse_json(oai_text(resp))
+    return proposed
 
 
 def assemble(brand: str, facts: dict, proposed: dict, qloo_calls=None, resolution=None) -> AnalysisResult:
