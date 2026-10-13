@@ -23,7 +23,7 @@ from models import (
     AnalysisResult, BlindSpot, Channel, Collaboration, ContentTheme,
     DomainAffinities, EntityAffinity, Persona, QlooCall,
 )
-from llm import text_of
+from llm import oai_text
 from agent_core import run_investigation
 
 POP_FLOOR = 0.15          # blind-spot candidates must be at least this recognizable
@@ -142,10 +142,10 @@ Give 3 collaborations, 3 content_themes, 3 channels. Only reference entity names
 Return ONLY the JSON."""
 
     resp = await llm.generate(
-        [{"role": "user", "parts": [{"text": prompt}]}],
-        max_output_tokens=2048, temperature=0.85, thinking_budget=256,
+        [{"role": "user", "content": prompt}],
+        max_output_tokens=2048, temperature=0.85,
     )
-    return _parse_json(text_of(resp))
+    return _parse_json(oai_text(resp))
 
 
 def assemble(brand: str, facts: dict, proposed: dict, qloo_calls=None, resolution=None) -> AnalysisResult:

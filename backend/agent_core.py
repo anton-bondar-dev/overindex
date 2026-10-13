@@ -12,10 +12,11 @@ and cut to fund genuine agency + keep the loop cheap).
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 
 from qloo import parsers
-from llm import function_calls_of, model_turn, text_of
+from llm import oai_assistant_msg, oai_text, oai_tool_calls
 
 DOMAINS = ["artist", "movie", "tv_show", "book", "brand", "place", "podcast", "videogame"]
 
@@ -44,56 +45,61 @@ How to work:
 Think step by step; keep reasoning short and concrete."""
 
 
-TOOL_DECLARATIONS = [
+TOOLS = [
     {
-        "functionDeclarations": [
-            {
-                "name": "resolve_entity",
-                "description": (
-                    "Look up a brand/company/product (or any cultural entity) by name in Qloo to get "
-                    "its entity id. Call this first. If the exact brand isn't found, resolve 2-3 "
-                    "comparable entities (a peer brand, or an artist/show its customers likely share)."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "name": {"type": "string", "description": "Entity name to look up"},
-                        "type": {
-                            "type": "string",
-                            "description": "Optional entity-type hint",
-                            "enum": ["brand", "artist", "movie", "tv_show", "book", "place", "podcast", "videogame", "person"],
-                        },
+        "type": "function",
+        "function": {
+            "name": "resolve_entity",
+            "description": (
+                "Look up a brand/company/product (or any cultural entity) by name in Qloo to get "
+                "its entity id. Call this first. If the exact brand isn't found, resolve 2-3 "
+                "comparable entities (a peer brand, or an artist/show its customers likely share)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Entity name to look up"},
+                    "type": {
+                        "type": "string",
+                        "description": "Optional entity-type hint",
+                        "enum": ["brand", "artist", "movie", "tv_show", "book", "place", "podcast", "videogame", "person"],
                     },
-                    "required": ["name"],
                 },
+                "required": ["name"],
             },
-            {
-                "name": "affinity_scan",
-                "description": (
-                    "Given a resolved entity id, find the entities in a domain that this audience most "
-                    "over-indexes on (highest affinity). Your core investigation tool — call it for the "
-                    "domains you judge relevant, and adapt based on results."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "entity_id": {"type": "string", "description": "Qloo entity id from resolve_entity"},
-                        "domain": {"type": "string", "enum": DOMAINS, "description": "Domain to scan"},
-                    },
-                    "required": ["entity_id", "domain"],
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "affinity_scan",
+            "description": (
+                "Given a resolved entity id, find the entities in a domain that this audience most "
+                "over-indexes on (highest affinity). Your core investigation tool — call it for the "
+                "domains you judge relevant, and adapt based on results."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "entity_id": {"type": "string", "description": "Qloo entity id from resolve_entity"},
+                    "domain": {"type": "string", "enum": DOMAINS, "description": "Domain to scan"},
                 },
+                "required": ["entity_id", "domain"],
             },
-            {
-                "name": "get_tags",
-                "description": "Find Qloo tag ids for an interest/genre/cuisine keyword (content-theme vocabulary).",
-                "parameters": {
-                    "type": "object",
-                    "properties": {"query": {"type": "string", "description": "Keyword, e.g. 'coffee' or 'indie rock'"}},
-                    "required": ["query"],
-                },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_tags",
+            "description": "Find Qloo tag ids for an interest/genre/cuisine keyword (content-theme vocabulary).",
+            "parameters": {
+                "type": "object",
+                "properties": {"query": {"type": "string", "description": "Keyword, e.g. 'coffee' or 'indie rock'"}},
+                "required": ["query"],
             },
-        ]
-    }
+        },
+    },
 ]
 
 
@@ -139,15 +145,17 @@ async def run_investigation(brand: str, qloo, llm, emit=None, max_steps: int = 1
         if emit:
             await emit(ev)
 
-    contents = [{"role": "user", "parts": [{"text": f"Investigate this brand's cultural audience: {brand}"}]}]
+    messages = [
+        {"role": "system", "content": SYSTEM},
+        {"role": "user", "content": f"Investigate this brand's cultural audience: {brand}"},
+    ]
     gathered, trace, steps = [], [], 0
 
     await _emit({"type": "run_start", "brand": brand})
     while steps < max_steps:
-        resp = await llm.generate(contents, tools=TOOL_DECLARATIONS, system=SYSTEM,
-                                  max_output_tokens=1024, thinking_budget=0)
-        calls = function_calls_of(resp)
-        thought = text_of(resp)
+        resp = await llm.generate(messages, tools=TOOLS, temperature=0.7, max_output_tokens=1024)
+        calls = oai_tool_calls(resp)
+        thought = oai_text(resp)
         if thought:
             await _emit({"type": "thought", "text": thought})
             trace.append({"type": "thought", "text": thought})
@@ -155,7 +163,7 @@ async def run_investigation(brand: str, qloo, llm, emit=None, max_steps: int = 1
             await _emit({"type": "investigation_done", "note": thought})
             break
 
-        contents.append(model_turn(resp))
+        messages.append(oai_assistant_msg(resp))
 
         # Announce every call in this turn, then run them CONCURRENTLY. Qloo calls
         # are independent, so batching the domain scans into one turn and running
@@ -181,13 +189,10 @@ async def run_investigation(brand: str, qloo, llm, emit=None, max_steps: int = 1
             except Exception as exc:
                 result = {"error": str(exc)}
                 await _emit({"type": "step_result", "id": sid, "tool": name, "summary": f"error: {exc}", "status": "error"})
-            fr = {"name": name, "response": result}
-            if call_id:
-                fr["id"] = call_id
-            return {"functionResponse": fr}
+            return {"role": "tool", "tool_call_id": call_id, "content": json.dumps(result)}
 
-        fr_parts = await asyncio.gather(*[_run(*b) for b in batch])
-        contents.append({"role": "user", "parts": list(fr_parts)})
+        tool_msgs = await asyncio.gather(*[_run(*b) for b in batch])
+        messages.extend(tool_msgs)
 
     await _emit({"type": "gathered", "count": len(gathered)})
     return {

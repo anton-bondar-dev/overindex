@@ -27,7 +27,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from config import settings
-from llm import GeminiPool
+from llm import make_llm
 from models import AnalysisResult
 from qloo import get_qloo_client
 from synthesize import analyze
@@ -174,7 +174,7 @@ async def _execute(run_id: str, brand: str):
         await run.queue.put(ev)
 
     try:
-        async with get_qloo_client() as qloo, GeminiPool() as llm:
+        async with get_qloo_client() as qloo, make_llm() as llm:
             run.result = await asyncio.wait_for(
                 analyze(brand, qloo, llm, emit=emit), timeout=settings.run_deadline_s
             )

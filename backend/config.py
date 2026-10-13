@@ -24,7 +24,14 @@ class Settings(BaseSettings):
     gemini_models: str = "gemini-flash-lite-latest,gemini-3.8-flash"
     gemini_model: str = "gemini-flash-lite-latest"   # primary (shown in healthz)
     gemini_thinking_budget: int = 0     # applied ONLY to non-lite "thinking" models
-    groq_api_key: str = ""
+
+    # Groq (OpenAI-compatible) — PRIMARY provider. Fast from any IP (Gemini is
+    # heavily throttled from the datacenter host), strong tool-calling (Llama tops
+    # the Berkeley function-calling leaderboard). Free tier is per-account.
+    llm_provider: str = "groq"          # "groq" | "gemini"
+    groq_api_key: str = ""              # single key
+    groq_api_keys: str = ""             # comma-separated pool (rotate on 429)
+    groq_models: str = "llama-3.3-70b-versatile,llama-3.1-8b-instant"
 
     # Limits — protect the Qloo monthly budget AND the Gemini daily quota
     max_qloo_concurrency: int = 5          # parallel in-flight Qloo calls
@@ -52,6 +59,18 @@ class Settings(BaseSettings):
         """Models to try in order (fall through on 503/overload)."""
         chain = [m.strip() for m in self.gemini_models.split(",") if m.strip()]
         return chain or [self.gemini_model]
+
+    def groq_key_pool(self) -> list[str]:
+        """All Groq keys to rotate across (pool first, else the single key)."""
+        pool = [k.strip() for k in self.groq_api_keys.split(",") if k.strip()]
+        if not pool and self.groq_api_key:
+            pool = [self.groq_api_key]
+        return pool
+
+    def groq_model_chain(self) -> list[str]:
+        """Groq models to try in order (fall through on error/overload)."""
+        chain = [m.strip() for m in self.groq_models.split(",") if m.strip()]
+        return chain or ["llama-3.3-70b-versatile"]
 
 
 settings = Settings()

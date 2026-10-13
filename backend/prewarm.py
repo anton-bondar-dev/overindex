@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 from config import settings
-from llm import GeminiPool
+from llm import make_llm
 from qloo import get_qloo_client
 from synthesize import analyze
 
@@ -47,7 +47,7 @@ async def warm_one(brand: str) -> None:
     async def emit(ev):
         events.append(ev)
 
-    async with get_qloo_client() as qloo, GeminiPool() as llm:
+    async with get_qloo_client() as qloo, make_llm() as llm:
         result = await asyncio.wait_for(
             analyze(brand, qloo, llm, emit=emit), timeout=PER_BRAND_TIMEOUT
         )
