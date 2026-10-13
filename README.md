@@ -42,15 +42,15 @@ The sequence of tool calls **is** the product. You see it happen in real time.
 ## How it works
 
 ```
-brand ─▶  ReAct agent loop  (Gemini, function-calling)
+brand ─▶  ReAct agent loop  (Groq gpt-oss, function-calling)
               │  plans → picks a Qloo tool → reads result → adapts → repeats
               ▼
-          Qloo Taste AI          resolve_entity · affinity_scan · get_tags
+          Qloo Taste AI          resolve_entity · affinity_scan
               │  (every call streamed to the UI as it fires)
               ▼
           grounded facts  (computed in CODE from Qloo data only)
-              │  over-index vs audience average · opportunity = affinity × (1−popularity)
-              │  cross-domain "blind spot" above a popularity floor
+              │  opportunity = affinity × (1 − popularity) · franchise-deduped
+              │  cross-domain "blind spot" (outside the dominant lane) above a popularity floor
               ▼
           synthesis  (LLM) ──▶  persona · collaborations · content · channels
               ▼
@@ -70,7 +70,6 @@ Overindex is built *around* Qloo's signal, not bolted onto it:
 - **`/v2/insights`** with `signal.interests.entities` and a per-domain
   `filter.type`, fanned out across **artist, movie, tv_show, book, brand, place,
   podcast and videogame** — the agent chooses which.
-- **`/v2/tags`** for content-theme vocabulary.
 - Every entity carries Qloo's **affinity** (0–1 relevance to this audience) and
   **popularity** (0–1). The interesting signal is **high affinity + low
   popularity** = ownable and non-obvious.
@@ -78,11 +77,12 @@ Overindex is built *around* Qloo's signal, not bolted onto it:
 ### Honest metrics (no fabricated lift)
 
 Qloo exposes no population baseline, so Overindex never invents a "3× more likely
-than the general population" number. The over-index shown is a **relative index**:
-how far above *this audience's own average affinity in that domain* an entity sits
-— labeled "× the audience's average." The **Blind Spot** is the top *cross-domain*
-opportunity that clears a popularity floor (surprising **and** recognizable, not
-obscure noise). It's grounded, checkable, and honest about what the number means.
+than the general population" multiplier. It shows the two raw Qloo signals
+directly — **affinity** (how much this audience is into something) and
+**popularity** (how mainstream it is) — and ranks opportunities by `affinity ×
+(1 − popularity)`: loved **and** not-yet-obvious. The **Blind Spot** is the top
+such *cross-domain* entity, outside the audience's dominant lane and above a
+popularity floor (surprising **and** recognizable, not obscure noise).
 
 ### Grounded vs. proposed — kept visibly separate
 
@@ -113,7 +113,7 @@ channels to act on — each traceable back to Qloo's data.
 cd backend
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env     # add QLOO_API_KEY and GEMINI_API_KEYS
+cp .env.example .env     # add QLOO_API_KEY and GROQ_API_KEYS
 uvicorn main:app --port 8000
 ```
 
@@ -126,17 +126,17 @@ npm run dev              # proxies /api → http://localhost:8000
 ```
 
 Open the printed Vite URL. Required env: `QLOO_API_KEY` (Qloo hackathon key) and
-`GEMINI_API_KEYS` (one or more Google AI Studio keys, comma-separated). See
-[`backend/.env.example`](./backend/.env.example).
+`GROQ_API_KEYS` (one or more [console.groq.com](https://console.groq.com) keys,
+comma-separated). See [`backend/.env.example`](./backend/.env.example).
 
 ### Example brands vs. your own
 
-The four example chips **replay a frozen real investigation** (full trace +
-result) from an on-disk cache, so the showcase is instant and reliable and spends
-no API quota. **Typing any other brand runs the agent live** against Gemini and
-Qloo — that live path is the real thing. Regenerate the example cache any time
-with `python backend/prewarm.py` (requires live keys; the cache is gitignored and
-contains no Qloo data in this repo).
+The example chips — and ~14 common brands — **replay a frozen real investigation**
+(full trace + result) from an on-disk cache, so the showcase is instant and
+reliable and spends no API quota. **Typing any other brand runs the agent live**
+against Groq and Qloo (~15s) — that live path is the real thing. Regenerate the
+cache any time with `python backend/prewarm.py "<Brand>" ...` (requires live keys;
+the cache is gitignored and contains no Qloo data in this repo).
 
 ## Project layout
 
@@ -144,7 +144,7 @@ contains no Qloo data in this repo).
 backend/
   agent_core.py    ReAct loop, tool declarations, system prompt
   synthesize.py    grounded-facts computation + LLM synthesis + assembly
-  llm.py           Gemini pool: key rotation + model fallback chain
+  llm.py           Groq pool: key rotation + model fallback chain
   qloo/            async Qloo client, defensive parsers, mock client
   main.py          FastAPI: start run · SSE trace · fetch result
   prewarm.py       freeze example runs into the replay cache
@@ -155,7 +155,7 @@ frontend/src/
 
 ## Tech stack
 
-FastAPI · httpx (async) · Pydantic v2 · Google Gemini (`google-genai`, ReAct
+FastAPI · httpx (async) · Pydantic v2 · Groq (`openai/gpt-oss-120b`, OpenAI-style
 function-calling) · Qloo Taste AI · React 19 + TypeScript + Vite + Tailwind v4 ·
 Server-Sent Events.
 

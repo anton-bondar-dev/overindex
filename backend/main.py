@@ -99,7 +99,7 @@ if not EXAMPLES_CACHE:
 
 
 # --- Rate limiting: live runs only; cached replays are always free -----------
-# The live path spends shared free-tier Gemini + Qloo quota, and the endpoint is
+# The live path spends shared free-tier Groq + Qloo quota, and the endpoint is
 # public and unauthenticated. Without this, a trivial POST loop drains the quota
 # and takes the demo down. Three gates: per-IP/minute, per-day total, concurrency.
 _ip_window: dict[str, deque] = defaultdict(deque)   # ip -> recent live-run timestamps
@@ -116,6 +116,9 @@ def _reserve_live_run(ip: str) -> str | None:
     """Reserve a slot for a live (quota-spending) run, or return a rejection key."""
     global _live_runs
     now = time.monotonic()
+    if len(_ip_window) > 2048:  # bound the per-IP table: drop windows that emptied out
+        for k in [k for k, v in _ip_window.items() if not v]:
+            _ip_window.pop(k, None)
     dq = _ip_window[ip]
     while dq and now - dq[0] > 60:
         dq.popleft()
@@ -201,19 +204,24 @@ async def start_analyze(body: AnalyzeIn, request: Request):
     brand = (body.brand or "").strip()
     if not (2 <= len(brand) <= 200):
         raise HTTPException(422, "brand must be 2-200 characters")
+    # Global registry cap (covers the cached path too): bounds memory + background
+    # tasks even under a burst of example-chip clicks, which the per-IP/live limiter
+    # intentionally does not gate.
+    if len(RUNS) >= settings.max_total_runs:
+        raise HTTPException(503, "The demo is at capacity right now — please retry in a moment.")
     run_id = uuid.uuid4().hex[:12]
     cached = EXAMPLES_CACHE.get(_norm(brand))
     if cached:
         RUNS[run_id] = Run()
         asyncio.create_task(_replay(run_id, cached))    # frozen real run — always free
         return {"run_id": run_id}
-    # Live path spends shared Gemini + Qloo quota — rate-limit it.
+    # Live path spends shared Groq + Qloo quota — rate-limit it.
     ip = request.client.host if request.client else "unknown"
     reason = _reserve_live_run(ip)
     if reason:
         raise HTTPException(429, _RL_MESSAGES[reason])
     RUNS[run_id] = Run()
-    asyncio.create_task(_execute(run_id, brand))        # live Gemini + Qloo pipeline
+    asyncio.create_task(_execute(run_id, brand))        # live Groq + Qloo pipeline
     return {"run_id": run_id}
 
 

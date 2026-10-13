@@ -68,10 +68,20 @@ export function ResultScreen({ runId, onHome }: { runId: string; onHome: () => v
           {result.persona?.name || result.brand}
         </h1>
         {result.persona?.narrative && (
-          <p className="mt-4 max-w-2xl text-lg leading-relaxed text-text">{result.persona.narrative}</p>
+          <>
+            <p className="mt-4 max-w-2xl text-lg leading-relaxed text-text">{result.persona.narrative}</p>
+            <div className="mt-2 font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-warn">◌ the agent's reading</div>
+          </>
         )}
         <div className="mono-num mt-4 text-[13px] text-text-dim">{stat}</div>
       </header>
+
+      {result.resolution?.method === 'proxy' && result.resolution.note && (
+        <div className="mt-6 rounded-[8px] border border-warn/40 bg-warn/10 px-4 py-2.5 text-sm text-text">
+          <span className="font-mono text-[11px] font-semibold uppercase tracking-wide text-warn">Proxy</span>{' '}
+          {result.resolution.note}
+        </div>
+      )}
 
       {/* BLIND SPOT — the hero (the one glow) */}
       {bs && (
@@ -80,7 +90,9 @@ export function ResultScreen({ runId, onHome }: { runId: string; onHome: () => v
             <div>
               <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-accent-hi">Blind spot</div>
               <p className="mt-3 text-xl font-medium leading-snug text-text-hi">{bs.line}</p>
-              <div className="mono-num mt-4 flex items-center gap-2 text-[13px] text-text-dim">
+              <div className="mt-2 font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-warn">◌ agent proposal</div>
+              <div className="mono-num mt-3 flex items-center gap-2 text-[13px] text-text-dim">
+                <span className="text-ok" title="grounded in Qloo">●</span>
                 <Dot domain={bs.entity.domain} />
                 <EntityLink name={bs.entity.name} /> · {bs.entity.domain}
               </div>
@@ -97,13 +109,13 @@ export function ResultScreen({ runId, onHome }: { runId: string; onHome: () => v
 
       {/* OPPORTUNITIES (grounded) */}
       {result.opportunities.length > 0 && (
-        <Section kind="grounded" title="What they quietly over-index on" sub="High affinity, lower reach — the ownable signals.">
-          <div className="mt-4 hidden sm:block">
+        <Section kind="grounded" title="What they quietly over-index on" sub="High affinity, lower reach — the ownable signals, ranked by affinity × (1 − popularity).">
+          <div className="mt-4">
             <OpportunityScatter items={result.opportunities} />
           </div>
           <div className="mt-4 space-y-1.5">
             {result.opportunities.slice(0, 8).map((e) => (
-              <AffinityBar key={e.id + e.domain} e={e} />
+              <OpportunityRow key={e.id + e.domain} e={e} maxOpp={oppScore(result.opportunities[0])} />
             ))}
           </div>
         </Section>
@@ -306,6 +318,7 @@ function HeroFigure({ e }: { e: EntityAffinity }) {
       <div className="mono-num text-5xl font-semibold tracking-tight text-text-hi">{Math.round(e.affinity * 100)}</div>
       <div className="mt-1 text-[11px] uppercase tracking-wide text-text-faint">audience affinity</div>
       {pop != null && <div className="mono-num mt-2 text-[11px] text-text-dim">{pop} popularity</div>}
+      <div className="mt-2 font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-ok">● Qloo data</div>
     </div>
   )
 }
@@ -351,6 +364,27 @@ function oppScore(e: EntityAffinity): number {
   return e.affinity * (1 - (e.popularity ?? 0.5))
 }
 
+/** An "ownable" row: the bar encodes the OPPORTUNITY score (affinity × (1 − popularity))
+ *  normalized to the top row, so the always-visible bars match the ranking; the numbers
+ *  show both affinity and popularity so "high affinity, lower reach" is legible. */
+function OpportunityRow({ e, maxOpp }: { e: EntityAffinity; maxOpp: number }) {
+  const aff = Math.round(e.affinity * 100)
+  const pop = e.popularity != null ? Math.round(e.popularity * 100) : null
+  const barPct = Math.max(4, Math.round((oppScore(e) / (maxOpp || 1)) * 100))
+  return (
+    <div className="group grid grid-cols-[14px_1fr_90px_auto] items-center gap-2.5 rounded-[6px] -mx-2 px-2 py-0.5 transition-colors hover:bg-surface-2">
+      <Dot domain={e.domain} />
+      <EntityLink name={e.name} className="block truncate text-sm text-text" />
+      <div className="h-1.5 rounded-full" style={{ background: 'var(--color-aff-track)' }}>
+        <div className="h-1.5 rounded-full transition-[width] duration-500" style={{ width: `${barPct}%`, background: 'var(--color-aff-bar)' }} />
+      </div>
+      <div className="mono-num whitespace-nowrap text-right text-[11px] text-text-dim">
+        <span className="text-text">aff {aff}</span> · pop {pop ?? '–'}
+      </div>
+    </div>
+  )
+}
+
 function OpportunityScatter({ items }: { items: EntityAffinity[] }) {
   const [hover, setHover] = useState<number | null>(null)
   const pts = items.filter((e) => e.popularity != null)
@@ -391,7 +425,7 @@ function OpportunityScatter({ items }: { items: EntityAffinity[] }) {
           const cx = x(e.popularity as number)
           const cy = y(e.affinity)
           return (
-            <g key={e.id} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)} style={{ cursor: 'pointer' }}>
+            <g key={e.id} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)} onClick={() => setHover((h) => (h === i ? null : i))} style={{ cursor: 'pointer' }}>
               <circle cx={cx} cy={cy} r={13} fill="transparent" />
               <circle cx={cx} cy={cy} r={hover === i ? 7 : 6} fill="var(--color-aff-bar)" fillOpacity={0.4 + oppScore(e) * 0.6} stroke="var(--color-ring)" strokeWidth={2} />
             </g>
@@ -413,7 +447,7 @@ function OpportunityScatter({ items }: { items: EntityAffinity[] }) {
         </div>
       )}
       <div className="mt-1 flex justify-between text-[11px] text-text-faint">
-        <span>Hover a point for detail</span>
+        <span>Tap or hover a point for detail</span>
         {hidden > 0 && <span>{hidden} with unknown reach not shown</span>}
       </div>
     </div>

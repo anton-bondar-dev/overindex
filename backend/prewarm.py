@@ -2,7 +2,7 @@
 freeze the full trace + result to backend/cache/{slug}.json.
 
 Why: judges clicking an example chip then get an instant, quota-free REPLAY of a
-real run (same live trace, same dashboard). The live Gemini/Qloo pipeline is
+real run (same live trace, same dashboard). The live Groq/Qloo pipeline is
 reserved for brands they type themselves — which is what proves the agent is
 genuinely real-time. Re-run this after any pipeline change.
 
@@ -26,9 +26,9 @@ PER_BRAND_TIMEOUT = 150  # abort a single brand that the slow LLM endpoint wedge
 PACE_SECONDS = 65        # wait between brands so Groq's per-minute token bucket refills
 
 # Brands judges are likely to TYPE (not just the 4 input chips) all REPLAY a frozen
-# real run -> instant and quota-free, which matters because Gemini is heavily
-# throttled from the demo host. Generate this cache from a FAST network (locally),
-# then rsync backend/cache/ to the server. Pass brands as args to warm a subset.
+# real run -> instant and quota-free, which protects Groq's per-minute token
+# budget under judge load. Generated with pacing (PACE_SECONDS) to stay under the
+# free-tier cap, then rsync backend/cache/ to the server. Pass brands as args.
 EXAMPLES = [
     "Patagonia", "A24", "Blue Bottle Coffee", "Liquid Death",
     "Nike", "Spotify", "Notion", "Glossier", "Duolingo", "Allbirds",

@@ -1,13 +1,14 @@
 """Overindex agent core: a ReAct investigation loop.
 
-The LLM (Gemini, function calling) plans and chooses which Qloo tools to call;
-we execute them and feed results back until it decides it has enough or hits the
-step cap. The sequence of tool calls IS the agentic behaviour — the model
-decides which domains to pursue and which to skip based on what it sees.
+The LLM (Groq gpt-oss, OpenAI-style function calling) plans and chooses which
+Qloo tools to call; we execute them and feed results back until it decides it has
+enough or hits the step cap. The sequence of tool calls IS the agentic behaviour
+— the model decides which domains to pursue and which to skip based on what it
+sees, and a turn's calls run concurrently.
 
-v1 toolset is deliberately TRIMMED (red-team): resolve_entity, affinity_scan,
-get_tags. No demographics / compare / trending / baseline (unverified shapes,
-and cut to fund genuine agency + keep the loop cheap).
+Toolset is deliberately TRIMMED: resolve_entity, affinity_scan. No demographics /
+compare / trending (unverified shapes) — cut to fund genuine agency and keep the
+loop cheap.
 """
 from __future__ import annotations
 
@@ -29,20 +30,18 @@ How to work:
    resolve 2-3 comparable entities (a peer brand + a cultural anchor its buyers
    likely share) and use those as proxies — this is expected for small/new brands,
    not a failure. Say when you do it.
-2. Then scan FAST and in PARALLEL. In your next turn, request affinity_scan for
-   ALL the domains you judge relevant AT ONCE — emit several affinity_scan calls
-   in a SINGLE response (they run concurrently). Choose the 4-5 domains most likely
-   to reveal this audience; skip ones unlikely to matter. One short line on why.
+2. Then investigate: scan the cultural domains you judge most relevant with
+   affinity_scan — the 4-6 most likely to reveal this audience; skip ones unlikely
+   to matter. Give one short line on why for each, and adapt based on what you see.
 3. Qloo gives affinity (0-1 relevance to this audience) and popularity (0-1). The
    interesting signal is HIGH affinity + relatively LOW popularity (ownable,
    non-obvious). Watch for a cross-domain "blind spot" — a surprising entity the
    brand would never guess.
-4. After reviewing the results, do AT MOST one more short scan round for a
-   promising domain, then STOP and reply with a one-line note that you're done.
-   Aim for ~2-3 turns total (~6-10 tool calls) — investigate in parallel, not one
-   domain at a time. Speed matters.
+4. When you have enough across several domains to describe the audience and find a
+   non-obvious cross-domain insight, STOP and reply with a one-line note that
+   you're done. Aim for ~6-8 scans total — be decisive, not exhaustive.
 
-Think step by step; keep reasoning short and concrete."""
+Think step by step; keep your reasoning short and concrete."""
 
 
 TOOLS = [
@@ -88,18 +87,6 @@ TOOLS = [
             },
         },
     },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_tags",
-            "description": "Find Qloo tag ids for an interest/genre/cuisine keyword (content-theme vocabulary).",
-            "parameters": {
-                "type": "object",
-                "properties": {"query": {"type": "string", "description": "Keyword, e.g. 'coffee' or 'indie rock'"}},
-                "required": ["query"],
-            },
-        },
-    },
 ]
 
 
@@ -128,12 +115,6 @@ async def execute_tool(qloo, name: str, args: dict):
         ]
         top = ", ".join(f"{o['name']} ({o['affinity']})" for o in out[:3])
         return {"domain": args["domain"], "entities": out}, f"{len(out)} {args['domain']}; top: {top}"
-
-    if name == "get_tags":
-        resp = await qloo.tags(**{"filter.query": args["query"]})
-        tags = parsers.tag_results(resp)[:10]
-        out = [{"id": parsers.tag_id(t), "name": parsers.name_of(t)} for t in tags]
-        return {"tags": out}, f"{len(out)} tags for '{args['query']}'"
 
     return {"error": f"unknown tool {name}"}, f"unknown tool {name}"
 
@@ -173,7 +154,9 @@ async def run_investigation(brand: str, qloo, llm, emit=None, max_steps: int = 1
         resp = await llm.generate(messages, tools=TOOLS, temperature=0.7, max_output_tokens=2560)
         calls = oai_tool_calls(resp)
         thought = oai_text(resp) or oai_reasoning(resp)
-        if thought:
+        # Only surface a substantive reasoning line — skip bare fragments like "Done."
+        substantive = bool(thought) and len(thought) >= 12 and thought.strip().rstrip(" .").lower() != "done"
+        if substantive:
             await _emit({"type": "thought", "text": thought})
             trace.append({"type": "thought", "text": thought})
         if not calls:
@@ -188,16 +171,16 @@ async def run_investigation(brand: str, qloo, llm, emit=None, max_steps: int = 1
                                 "5-7 domains most relevant to this brand's audience — all in one turn."),
                 })
                 continue
-            await _emit({"type": "investigation_done", "note": thought})
+            await _emit({"type": "investigation_done", "note": thought if substantive else ""})
             break
 
         messages.append(oai_assistant_msg(resp))
 
-        # Announce every call in this turn, then run them CONCURRENTLY. Qloo calls
-        # are independent, so batching the domain scans into one turn and running
-        # them in parallel is what turns a ~90s sequential ReAct crawl into a
-        # ~15s investigation. Each step carries an id so the UI matches a result
-        # to its start even when several run at once.
+        # Announce every call in this turn, then run them concurrently. The model
+        # usually emits one scan per turn (so they run one at a time), but if it
+        # batches several into one response they execute in parallel. Each step
+        # carries an id so the UI matches a result to its start even when several
+        # run at once.
         batch = []
         for c in calls:
             steps += 1

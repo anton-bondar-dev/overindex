@@ -40,14 +40,12 @@ function toSteps(events: RunEvent[]): Step[] {
 function verb(tool: string, args: Record<string, unknown>): string {
   if (tool === 'resolve_entity') return `Locating ${args.name ? `"${args.name}"` : 'the brand'}`
   if (tool === 'affinity_scan') return `Scanning ${args.domain ?? 'affinities'}`
-  if (tool === 'get_tags') return 'Mapping the tag vocabulary'
   return tool
 }
 
 function reason(tool: string, args: Record<string, unknown>): string {
   if (tool === 'resolve_entity') return `Pinning this brand in Qloo's taste graph…`
   if (tool === 'affinity_scan') return `Reading who over-indexes on this audience in ${args.domain ?? 'this domain'}…`
-  if (tool === 'get_tags') return `Reading the tag cloud around the brand…`
   return 'Working…'
 }
 
@@ -55,17 +53,15 @@ function endpointLine(tool: string, args: Record<string, unknown>): string {
   const ep = TOOL_ENDPOINT[tool] || 'GET'
   if (tool === 'affinity_scan') return `${tool} · ${ep} · type=urn:entity:${args.domain}`
   if (tool === 'resolve_entity') return `${tool} · ${ep} · query="${args.name ?? ''}"`
-  if (tool === 'get_tags') return `${tool} · ${ep} · filter.query="${args.query ?? ''}"`
   return `${tool} · ${ep}`
 }
 
-const PLAN = ['Locate', 'Scan', 'Map', 'Assemble']
+const PLAN = ['Locate', 'Scan', 'Assemble']
 function planActive(steps: Step[], synthesizing: boolean): Set<string> {
   const a = new Set<string>()
   for (const s of steps) {
     if (s.tool === 'resolve_entity') a.add('Locate')
     if (s.tool === 'affinity_scan') a.add('Scan')
-    if (s.tool === 'get_tags') a.add('Map')
   }
   if (synthesizing) a.add('Assemble')
   return a
@@ -77,7 +73,13 @@ export function RunScreen({ runId, onDone, onHome }: { runId: string; onDone: ()
   const synthesizing = events.some((e) => e.type === 'synthesizing')
   const brand = events.find((e) => e.type === 'run_start')?.brand ?? ''
   const latestThought = useMemo(() => {
-    const ts = events.filter((e) => e.type === 'thought' && e.text)
+    const ts = events.filter(
+      (e) =>
+        e.type === 'thought' &&
+        e.text &&
+        e.text.trim().length >= 12 &&
+        e.text.trim().replace(/\.+$/, '').toLowerCase() !== 'done',
+    )
     return ts.length ? ts[ts.length - 1].text ?? '' : ''
   }, [events])
 

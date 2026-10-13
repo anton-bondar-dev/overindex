@@ -44,10 +44,18 @@ export type QlooCall = {
   latency_ms?: number | null
 }
 
+export type Resolution = {
+  query: string
+  resolved_name?: string | null
+  method: string // "direct" | "proxy"
+  note?: string | null
+}
+
 export type AnalysisResult = {
   id: string
   brand: string
   created_at: string
+  resolution?: Resolution | null
   persona?: Persona | null
   blind_spot?: BlindSpot | null
   domains: DomainAffinities[]
@@ -62,7 +70,6 @@ export type AnalysisResult = {
 export const TOOL_ENDPOINT: Record<string, string> = {
   resolve_entity: 'GET /search',
   affinity_scan: 'GET /v2/insights',
-  get_tags: 'GET /v2/tags',
 }
 
 // Domain identity is a text-paired dot ONLY, never a data mark. [light, dark].

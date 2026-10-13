@@ -7,8 +7,6 @@ pydantic-settings>=2.3
 # Backend API
 fastapi>=0.115
 uvicorn[standard]>=0.30
-slowapi>=0.1.9           # per-IP rate limiting
 
-# LLM "brain" — Gemini primary (free tier), current SDK. Groq = seam, not shipped yet.
-google-genai>=0.3
-# groq>=0.11
+# The LLM (Groq, OpenAI-compatible) and Qloo are both called over plain httpx —
+# no provider SDK needed. Rate limiting is implemented in main.py.
