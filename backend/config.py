@@ -16,11 +16,14 @@ class Settings(BaseSettings):
     qloo_base_url: str = "https://hackathon.api.qloo.com"
     use_mock_qloo: bool = False  # build/test the pipeline with no key
 
-    # LLM (Gemini primary; Groq is a fallback seam, not shipped yet)
+    # LLM (Gemini): a key POOL (rotate on quota) + a MODEL fallback chain.
     gemini_api_key: str = ""            # single key (fallback)
-    gemini_api_keys: str = ""           # comma-separated POOL (one per Google account) — rotate on quota
-    gemini_model: str = "gemini-3.8-flash"   # 2.5 retired; 3.x flash are "thinking" models
-    gemini_thinking_budget: int = 0     # 0 = no internal thinking (fast/cheap) for tool-call steps
+    gemini_api_keys: str = ""           # comma-separated POOL (one per Google account)
+    # Models tried in order; on 503/overload we move to the next. "lite-latest" is
+    # ~0.5s and far less overloaded than the full flash models (which 503 heavily).
+    gemini_models: str = "gemini-flash-lite-latest,gemini-3.8-flash"
+    gemini_model: str = "gemini-flash-lite-latest"   # primary (shown in healthz)
+    gemini_thinking_budget: int = 0     # applied ONLY to non-lite "thinking" models
     groq_api_key: str = ""
 
     # Limits — protect the Qloo monthly budget AND the Gemini daily quota
@@ -39,6 +42,11 @@ class Settings(BaseSettings):
         if not pool and self.gemini_api_key:
             pool = [self.gemini_api_key]
         return pool
+
+    def gemini_model_chain(self) -> list[str]:
+        """Models to try in order (fall through on 503/overload)."""
+        chain = [m.strip() for m in self.gemini_models.split(",") if m.strip()]
+        return chain or [self.gemini_model]
 
 
 settings = Settings()

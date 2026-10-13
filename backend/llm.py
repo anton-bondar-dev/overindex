@@ -22,11 +22,12 @@ class LLMError(RuntimeError):
 
 
 class GeminiPool:
-    def __init__(self, keys=None, model=None, thinking_budget=None, timeout=90.0):
+    def __init__(self, keys=None, models=None, thinking_budget=None, timeout=60.0):
         self.keys = keys or settings.gemini_key_pool()
         if not self.keys:
             raise LLMError("no Gemini keys configured (GEMINI_API_KEYS)")
-        self.model = model or settings.gemini_model
+        self.models = models or settings.gemini_model_chain()
+        self.model = self.models[0]  # primary, for display
         self.default_thinking = settings.gemini_thinking_budget if thinking_budget is None else thinking_budget
         self._idx = 0
         self._client = httpx.AsyncClient(timeout=timeout)
@@ -52,41 +53,38 @@ class GeminiPool:
         key is exhausted.
         """
         tb = self.default_thinking if thinking_budget is None else thinking_budget
-        body = {
-            "contents": contents,
-            "generationConfig": {
-                "maxOutputTokens": max_output_tokens,
-                "temperature": temperature,
-                "thinkingConfig": {"thinkingBudget": tb},
-            },
-        }
+        base = {"contents": contents}
         if tools:
-            body["tools"] = tools
+            base["tools"] = tools
         if system:
-            body["systemInstruction"] = {"parts": [{"text": system}]}
+            base["systemInstruction"] = {"parts": [{"text": system}]}
 
         last_err = None
-        for ki, key in self._key_order():
-            url = f"{GEMINI_BASE}/models/{self.model}:generateContent?key={key}"
-            for attempt in range(3):
+        for model in self.models:
+            gc = {"maxOutputTokens": max_output_tokens, "temperature": temperature}
+            if "lite" not in model:  # lite models reject thinkingConfig
+                gc["thinkingConfig"] = {"thinkingBudget": tb}
+            body = {**base, "generationConfig": gc}
+            for ki, key in self._key_order():
+                url = f"{GEMINI_BASE}/models/{model}:generateContent?key={key}"
                 try:
                     r = await self._client.post(url, json=body, headers={"Content-Type": "application/json"})
                 except httpx.RequestError as exc:
                     last_err = f"net:{exc}"
-                    await asyncio.sleep(1.5 * (attempt + 1))
-                    continue
-                if r.status_code == 429:
-                    last_err = f"429 (key #{ki})"
-                    break  # quota/rate on this key -> move to the next key
-                if r.status_code in (500, 502, 503):
-                    last_err = f"{r.status_code}"
-                    await asyncio.sleep(2 * (attempt + 1))
-                    continue
-                if r.status_code >= 400:
-                    raise LLMError(f"{r.status_code}: {r.text[:300]}")
-                self._idx = (self._idx + ki + 1) % len(self.keys)  # spread load
-                return r.json()
-        raise LLMError(f"all {len(self.keys)} keys exhausted: {last_err}")
+                    continue  # next key
+                sc = r.status_code
+                if sc == 200:
+                    self._idx = (self._idx + ki + 1) % len(self.keys)
+                    return r.json()
+                if sc == 429:
+                    last_err = f"429 {model} key#{ki}"
+                    continue  # quota on this key -> next key
+                if sc in (500, 502, 503):
+                    last_err = f"{sc} {model}"
+                    break  # model overloaded -> next model
+                last_err = f"{sc} {model}: {r.text[:160]}"
+                break  # other error -> next model
+        raise LLMError(f"all models/keys failed: {last_err}")
 
 
 # --- response parsing helpers -------------------------------------------------
