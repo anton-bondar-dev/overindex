@@ -93,6 +93,8 @@ export function ResultScreen({ runId, onHome }: { runId: string; onHome: () => v
         </div>
       )}
 
+      <AgentRecap result={result} />
+
       {/* OPPORTUNITIES (grounded) */}
       {result.opportunities.length > 0 && (
         <Section kind="grounded" title="What they quietly over-index on" sub="High affinity, lower reach — the ownable signals.">
@@ -257,6 +259,41 @@ function Wordmark() {
 
 function Dot({ domain }: { domain: string }) {
   return <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: domainColor(domain) }} />
+}
+
+const ALL_DOMAINS = ['artist', 'movie', 'tv_show', 'book', 'brand', 'place', 'podcast', 'videogame']
+
+/** Makes the agent's autonomy legible on the result page (survives a screenshot):
+ *  which cultural domains it chose to scan, which it skipped, how many Qloo calls. */
+function AgentRecap({ result }: { result: AnalysisResult }) {
+  const scanned = new Set(result.domains.map((d) => d.domain))
+  return (
+    <div className="card mt-6 p-4" style={{ borderRadius: 'var(--radius-ctl)' }}>
+      <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-text-faint">How the agent investigated</div>
+      <p className="mt-2 text-sm text-text">
+        It resolved <span className="text-text-hi">{result.brand}</span> in Qloo, then autonomously chose{' '}
+        <span className="text-text-hi">{scanned.size} of {ALL_DOMAINS.length}</span> cultural domains to scan — skipping the
+        rest — and stopped once the signal was clear.
+      </p>
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        {ALL_DOMAINS.map((d) => {
+          const on = scanned.has(d)
+          return (
+            <span
+              key={d}
+              className={`flex items-center gap-1.5 rounded-full border px-2 py-0.5 font-mono text-[11px] ${on ? 'border-border-strong text-text' : 'border-border text-text-faint opacity-50'}`}
+            >
+              <span className="h-1.5 w-1.5 rounded-full" style={{ background: on ? domainColor(d) : 'var(--color-text-faint)' }} />
+              {d}
+            </span>
+          )
+        })}
+      </div>
+      <div className="mono-num mt-3 text-[12px] text-text-dim">
+        {result.qloo_calls.length} live Qloo calls · {scanned.size} domains scanned
+      </div>
+    </div>
+  )
 }
 
 function HeroFigure({ e }: { e: EntityAffinity }) {

@@ -76,6 +76,10 @@ export function RunScreen({ runId, onDone, onHome }: { runId: string; onDone: ()
   const steps = useMemo(() => toSteps(events), [events])
   const synthesizing = events.some((e) => e.type === 'synthesizing')
   const brand = events.find((e) => e.type === 'run_start')?.brand ?? ''
+  const latestThought = useMemo(() => {
+    const ts = events.filter((e) => e.type === 'thought' && e.text)
+    return ts.length ? ts[ts.length - 1].text ?? '' : ''
+  }, [events])
 
   const [elapsed, setElapsed] = useState(0)
   useEffect(() => {
@@ -127,6 +131,13 @@ export function RunScreen({ runId, onDone, onHome }: { runId: string; onDone: ()
           ))}
         </div>
       </div>
+
+      {latestThought && status === 'running' && (
+        <p className="mt-4 text-sm leading-snug text-text-dim">
+          <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-accent-hi">reasoning</span>{' '}
+          {latestThought}
+        </p>
+      )}
 
       {status === 'error' && (
         <div className="mt-5 rounded-lg border border-err/30 bg-err/10 px-4 py-3">

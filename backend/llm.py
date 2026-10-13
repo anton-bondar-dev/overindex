@@ -206,6 +206,13 @@ def oai_text(resp) -> str:
     return (_oai_message(resp).get("content") or "").strip()
 
 
+def oai_reasoning(resp) -> str:
+    """gpt-oss / qwen emit their chain-of-thought in a separate `reasoning` field
+    (content is empty on a tool-calling turn). This is the model's real thinking,
+    shown in the live trace."""
+    return (_oai_message(resp).get("reasoning") or "").strip()
+
+
 def oai_tool_calls(resp) -> list:
     """List of {'id', 'name', 'args'} the model asked to call this turn."""
     out = []

@@ -16,7 +16,7 @@ import json
 import time
 
 from qloo import parsers
-from llm import oai_assistant_msg, oai_text, oai_tool_calls
+from llm import oai_assistant_msg, oai_reasoning, oai_text, oai_tool_calls
 
 DOMAINS = ["artist", "movie", "tv_show", "book", "brand", "place", "podcast", "videogame"]
 
@@ -172,7 +172,7 @@ async def run_investigation(brand: str, qloo, llm, emit=None, max_steps: int = 1
     while steps < max_steps:
         resp = await llm.generate(messages, tools=TOOLS, temperature=0.7, max_output_tokens=2560)
         calls = oai_tool_calls(resp)
-        thought = oai_text(resp)
+        thought = oai_text(resp) or oai_reasoning(resp)
         if thought:
             await _emit({"type": "thought", "text": thought})
             trace.append({"type": "thought", "text": thought})
