@@ -298,9 +298,19 @@ function OpportunityScatter({ items }: { items: EntityAffinity[] }) {
   const W = 480, H = 360, L = 48, R = 16, T = 16, B = 40
   const x = (pop: number) => L + pop * (W - L - R)
   const y = (aff: number) => T + (1 - aff) * (H - T - B)
-  const labeled = new Set([...pts].sort((a, b) => oppScore(b) - oppScore(a)).slice(0, 4).map((e) => e.id))
   const hidden = items.length - pts.length
   const tfaint = { fill: 'var(--color-text-faint)' } as const
+  // greedy non-overlapping direct labels for the most-ownable points
+  const placed: Array<{ x: number; y: number }> = []
+  const labels: Array<{ e: EntityAffinity; cx: number; cy: number; left: boolean }> = []
+  for (const e of [...pts].sort((a, b) => oppScore(b) - oppScore(a))) {
+    if (labels.length >= 3) break
+    const cx = x(e.popularity as number)
+    const cy = y(e.affinity)
+    if (placed.some((p) => Math.abs(p.x - cx) < 64 && Math.abs(p.y - cy) < 15)) continue
+    placed.push({ x: cx, y: cy })
+    labels.push({ e, cx, cy, left: cx > W * 0.6 })
+  }
 
   return (
     <div className="relative">
@@ -319,14 +329,22 @@ function OpportunityScatter({ items }: { items: EntityAffinity[] }) {
             <g key={e.id} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)} style={{ cursor: 'pointer' }}>
               <circle cx={cx} cy={cy} r={13} fill="transparent" />
               <circle cx={cx} cy={cy} r={hover === i ? 7 : 6} fill="var(--color-aff-bar)" fillOpacity={0.4 + oppScore(e) * 0.6} stroke="var(--color-ring)" strokeWidth={2} />
-              {labeled.has(e.id) && hover !== i && (
-                <text x={cx + 9} y={cy + 3} style={{ fill: 'var(--color-text-dim)', fontSize: 10 }}>
-                  {e.name.length > 16 ? e.name.slice(0, 15) + '…' : e.name}
-                </text>
-              )}
             </g>
           )
         })}
+        {labels.map(({ e, cx, cy, left }) =>
+          pts[hover ?? -1]?.id === e.id ? null : (
+            <text
+              key={'lbl-' + e.id}
+              x={left ? cx - 9 : cx + 9}
+              y={cy + 3}
+              textAnchor={left ? 'end' : 'start'}
+              style={{ fill: 'var(--color-text-dim)', fontSize: 10 }}
+            >
+              {e.name.length > 11 ? e.name.slice(0, 10) + '…' : e.name}
+            </text>
+          ),
+        )}
       </svg>
       {hover != null && pts[hover] && (
         <div
