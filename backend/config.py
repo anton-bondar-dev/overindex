@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     max_live_runs: int = 6                 # max concurrent live (non-cached) runs
     max_total_runs: int = 400              # hard cap on the run registry (cached + live)
     run_deadline_s: int = 90               # hard wall-clock cap on a single live run
-    run_grace_s: int = 300                 # keep a finished run fetchable this long, then evict
+    run_grace_s: int = 60                  # keep a finished run fetchable this long, then evict
 
     # Deploy
     public_base_url: str = "https://overindex.overpro.fit"

@@ -129,7 +129,7 @@ def _compact_for_llm(name: str, result: dict) -> dict:
         return {
             "domain": result.get("domain"),
             "entities": [
-                {"name": e.get("name"), "affinity": e.get("affinity")}
+                {"name": e.get("name"), "affinity": e.get("affinity"), "popularity": e.get("popularity")}
                 for e in result["entities"][:6]
             ],
         }
@@ -153,12 +153,6 @@ async def run_investigation(brand: str, qloo, llm, emit=None, max_steps: int = 1
     while steps < max_steps:
         resp = await llm.generate(messages, tools=TOOLS, temperature=0.7, max_output_tokens=2560)
         calls = oai_tool_calls(resp)
-        thought = oai_text(resp) or oai_reasoning(resp)
-        # Only surface a substantive reasoning line — skip bare fragments like "Done."
-        substantive = bool(thought) and len(thought) >= 12 and thought.strip().rstrip(" .").lower() != "done"
-        if substantive:
-            await _emit({"type": "thought", "text": thought})
-            trace.append({"type": "thought", "text": thought})
         if not calls:
             # gpt-oss sometimes concludes right after resolve_entity. If it hasn't
             # actually scanned anything yet, nudge it once rather than ship a
@@ -171,8 +165,17 @@ async def run_investigation(brand: str, qloo, llm, emit=None, max_steps: int = 1
                                 "5-7 domains most relevant to this brand's audience — all in one turn."),
                 })
                 continue
-            await _emit({"type": "investigation_done", "note": thought if substantive else ""})
+            # Do NOT surface the model's wrap-up reasoning — it may name a "blind spot"
+            # that contradicts the code-computed hero. The dashboard is the source of truth.
+            await _emit({"type": "investigation_done", "note": ""})
             break
+
+        # Surface the model's reasoning that PRECEDES this turn's actions (skip bare
+        # fragments like "Done.").
+        thought = oai_text(resp) or oai_reasoning(resp)
+        if thought and len(thought) >= 12 and thought.strip().rstrip(" .").lower() != "done":
+            await _emit({"type": "thought", "text": thought})
+            trace.append({"type": "thought", "text": thought})
 
         messages.append(oai_assistant_msg(resp))
 

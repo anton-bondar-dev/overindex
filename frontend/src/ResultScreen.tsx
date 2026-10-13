@@ -77,8 +77,8 @@ export function ResultScreen({ runId, onHome }: { runId: string; onHome: () => v
           <div className="mt-4 flex flex-wrap items-center gap-1.5">
             <span className="mr-1 font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-ok">● defining tastes</span>
             {result.persona.defining_tastes.slice(0, 5).map((e) => (
-              <span key={e.id + e.domain} className="flex items-center gap-1.5 rounded-full border border-border px-2 py-0.5 font-mono text-[11px] text-text">
-                <Dot domain={e.domain} /> <EntityLink name={e.name} />
+              <span key={e.id + e.domain} className="flex min-w-0 max-w-[200px] items-center gap-1.5 rounded-full border border-border px-2 py-0.5 font-mono text-[11px] text-text">
+                <Dot domain={e.domain} /> <EntityLink name={e.name} className="block truncate" />
               </span>
             ))}
           </div>
@@ -152,14 +152,22 @@ export function ResultScreen({ runId, onHome }: { runId: string; onHome: () => v
           <summary className="cursor-pointer text-[13px] text-text-dim hover:text-text">Show as table</summary>
           <div className="mt-2 overflow-hidden rounded-[8px] border border-border">
             <table className="mono-num w-full text-[12px]">
+              <thead>
+                <tr className="border-b border-border text-left text-text-faint">
+                  <th className="px-3 py-1 font-medium">Domain</th>
+                  <th className="px-3 py-1 font-medium">Entity</th>
+                  <th className="px-3 py-1 text-right font-medium">Affinity</th>
+                  <th className="px-3 py-1 text-right font-medium">Popularity</th>
+                </tr>
+              </thead>
               <tbody>
                 {spine.flatMap((d) =>
                   d.entities.slice(0, 5).map((e) => (
                     <tr key={e.id} className="border-b border-border last:border-0">
                       <td className="px-3 py-1 text-text-dim">{e.domain}</td>
                       <td className="px-3 py-1 text-text"><EntityLink name={e.name} /></td>
-                      <td className="px-3 py-1 text-right text-text-dim">{e.affinity.toFixed(2)}</td>
-                      <td className="px-3 py-1 text-right text-text-faint">pop {pct(e.popularity)}</td>
+                      <td className="px-3 py-1 text-right text-text-dim">{Math.round(e.affinity * 100)}</td>
+                      <td className="px-3 py-1 text-right text-text-faint">{pct(e.popularity)}</td>
                     </tr>
                   )),
                 )}
@@ -172,15 +180,17 @@ export function ResultScreen({ runId, onHome }: { runId: string; onHome: () => v
 
       {/* COLLABORATIONS (proposed) */}
       {result.collaborations.length > 0 && (
-        <Section kind="proposed" title="Collaborations to pursue">
+        <Section kind="proposed" title="Collaborations to pursue" sub="Ranked by ownability = affinity × (1 − popularity): loved by this audience, not yet obvious.">
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            {result.collaborations.map((c, i) => (
+            {[...result.collaborations].sort((a, b) => b.arbitrage - a.arbitrage).map((c, i) => (
               <div key={i} className="card p-4 transition-transform duration-200 hover:-translate-y-0.5">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 font-medium text-text-hi">
-                    <Dot domain={c.entity.domain} /> <EntityLink name={c.entity.name} />
+                  <div className="flex min-w-0 items-center gap-2 font-medium text-text-hi">
+                    <Dot domain={c.entity.domain} /> <EntityLink name={c.entity.name} className="block truncate" />
                   </div>
-                  <span className="mono-num text-[12px] text-text-dim">{c.arbitrage.toFixed(2)}</span>
+                  <span className="mono-num shrink-0 text-[11px] text-text-dim" title="ownability = affinity × (1 − popularity)">
+                    ownable {c.arbitrage.toFixed(2)}
+                  </span>
                 </div>
                 <p className="mt-2 text-sm text-text">{c.pitch}</p>
               </div>
@@ -294,8 +304,9 @@ function AgentRecap({ result }: { result: AnalysisResult }) {
       <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-text-faint">How the agent investigated</div>
       <p className="mt-2 text-sm text-text">
         It resolved <span className="text-text-hi">{result.brand}</span> in Qloo, then autonomously chose{' '}
-        <span className="text-text-hi">{scanned.size} of {ALL_DOMAINS.length}</span> cultural domains to scan — skipping the
-        rest — and stopped once the signal was clear.
+        <span className="text-text-hi">{scanned.size} of {ALL_DOMAINS.length}</span> cultural domains to scan
+        {scanned.size < ALL_DOMAINS.length ? ' — skipping the rest — ' : ', '}
+        and stopped once the signal was clear.
       </p>
       <div className="mt-3 flex flex-wrap gap-1.5">
         {ALL_DOMAINS.map((d) => {

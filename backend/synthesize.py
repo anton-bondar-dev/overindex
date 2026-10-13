@@ -42,19 +42,42 @@ BLIND_SPOT_MAX_NAME = 50  # the headline blind spot must read as a punchy, recog
                           # the hero and reads as noise. Caps the candidate pool only.
 OPP_POP_FLOOR = 0.12      # drop popularity artifacts / near-unknown noise from the ranking
 COLLAB_POP_CAP = 0.85     # a collaboration must be a non-obvious partner, not a famous rival
+# Opportunities / defining-tastes: recognizable, actionable domains (not obscure
+# named venues), capped per domain so the list stays cross-domain (not 10/12 books).
+OPP_DOMAINS = {"artist", "movie", "tv_show", "book", "brand", "podcast", "videogame"}
+OPP_MAX_PER_DOMAIN = 3
 
 _VOL_RE = re.compile(r"\s*[,:–-]?\s*\b(vol\.?|volume|season|part|pt\.?|chapter|episode|ep\.?|no\.?)\s*\d+.*$", re.I)
 
 
 def _series_stem(name: str) -> str:
-    """Collapse 'Invader Zim Vol. 3' / 'X: Season 2' to a stem so one franchise
-    (and its volume artifacts) can't flood the lists or the hero."""
-    base = _VOL_RE.sub("", name or "").strip(" :,–-")
-    return base.lower() or (name or "").lower()
+    """Collapse 'Invader Zim Vol. 3' / 'X: Season 2' / 'X: Subtitle' to a stem so one
+    franchise can't flood the lists or the hero. Normalizes unicode whitespace —
+    Qloo returns non-breaking / thin spaces that otherwise defeat the dedup."""
+    s = re.sub(r"\s+", " ", (name or "").replace("\xa0", " ").replace(" ", " ")).strip()
+    base = _VOL_RE.sub("", s)
+    base = re.split(r"[:–—]", base, maxsplit=1)[0]   # drop a trailing subtitle
+    base = base.strip(" :,–-")
+    return base.lower() or s.lower()
 
 
 def _norm_name(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", (s or "").lower())
+
+
+def _dedupe_by_stem(entities: list) -> list:
+    """Collapse franchise volumes/editions to the best (first) per stem. `entities`
+    must be pre-sorted best-first."""
+    best: dict[str, EntityAffinity] = {}
+    for e in entities:
+        best.setdefault(_series_stem(e.name), e)
+    return list(best.values())
+
+
+DOMAIN_LABEL = {
+    "artist": "artist", "movie": "film", "tv_show": "TV show", "book": "book",
+    "brand": "brand", "place": "place", "podcast": "podcast", "videogame": "video game",
+}
 
 
 def _entities_by_domain(gathered) -> dict:
@@ -88,43 +111,60 @@ def _opportunity(ea: EntityAffinity) -> float:
 
 def build_facts(gathered, brand: str = "") -> dict:
     by_domain = _entities_by_domain(gathered)
-    domains = [DomainAffinities(domain=d, entities=es) for d, es in by_domain.items()]
-    all_ents = [e for es in by_domain.values() for e in es]
     bn = _norm_name(brand)
 
-    # Keep entities with real popularity above the floor (a pop=0 gap would top the
-    # opportunity ranking), and NEVER the analyzed brand itself — telling a brand its
-    # audience over-indexes on itself is circular. Drops self-reference from
-    # opportunities, defining-tastes, the scatter, blind spot and collabs at once.
+    # Taste fingerprint: dedupe each domain's entities by franchise stem so one series
+    # can't fill a lane (Invader Zim Vol. 1-4), and drop the brand itself.
+    domains = [
+        DomainAffinities(domain=d, entities=_dedupe_by_stem([e for e in es if _norm_name(e.name) != bn]))
+        for d, es in by_domain.items()
+    ]
+
+    # Keep entities with real popularity above the floor, and NEVER the analyzed brand
+    # itself (self-reference is circular; drops it from every downstream list at once).
+    all_ents = [e for es in by_domain.values() for e in es]
     real = [e for e in all_ents
             if e.popularity is not None and e.popularity >= OPP_POP_FLOOR
             and _norm_name(e.name) != bn]
 
-    # Franchise/volume normalization: keep the best-scoring entity per (domain, stem)
-    # so one series (and its "Vol. N" artifacts) can't flood the lists or the hero.
-    best_by_stem: dict[tuple, EntityAffinity] = {}
+    # Franchise dedup across domains (best per stem), then opportunity-rank.
+    best_by_stem: dict[str, EntityAffinity] = {}
     for e in sorted(real, key=_opportunity, reverse=True):
-        best_by_stem.setdefault((e.domain, _series_stem(e.name)), e)
+        best_by_stem.setdefault(_series_stem(e.name), e)
     deduped = sorted(best_by_stem.values(), key=_opportunity, reverse=True)
-    opportunities = deduped[:12]
 
-    # Blind-spot candidates: a recognizable MEDIA entity, LOW-popularity (ownable — a
-    # floor AND a ceiling, so the hero isn't a mainstream hit), punchy name, AND
-    # outside the audience's DOMINANT media lane (not the brand's own category in
-    # another format, e.g. Nike -> basketball).
-    dom_counts = Counter(e.domain for e in deduped[:8] if e.domain in BLIND_DOMAINS)
+    # Opportunities / defining tastes: recognizable, actionable signals — exclude
+    # obscure named venues (place) and cap any one domain so the list stays genuinely
+    # cross-domain (not 10/12 books) instead of an obscurity-ranked flood.
+    per_domain: Counter = Counter()
+    opportunities = []
+    for e in deduped:
+        if e.domain not in OPP_DOMAINS or per_domain[e.domain] >= OPP_MAX_PER_DOMAIN:
+            continue
+        per_domain[e.domain] += 1
+        opportunities.append(e)
+        if len(opportunities) >= 12:
+            break
+
+    # Blind spot: a LOW-popularity recognizable MEDIA entity OUTSIDE the audience's
+    # dominant lane AND not already shown as a top defining-taste — so the hero is
+    # genuinely surprising, not a duplicate of opportunities[0]. No in-lane fallback:
+    # if nothing surprising qualifies, the hero is suppressed.
+    defining_ids = {e.id for e in opportunities[:5]}
+    dom_counts = Counter(e.domain for e in opportunities if e.domain in BLIND_DOMAINS)
     dominant = dom_counts.most_common(1)[0][0] if dom_counts else None
 
-    def _cand(e, allow_dominant):
+    def _cand(e, strict=True):
         return (e.domain in BLIND_DOMAINS
+                and e.id not in defining_ids
+                and (not strict or e.domain != dominant)
                 and e.popularity is not None
                 and POP_FLOOR <= e.popularity <= BLIND_POP_CEIL
-                and (allow_dominant or e.domain != dominant)
                 and bool(e.name) and len(e.name) <= BLIND_SPOT_MAX_NAME)
 
-    blind_candidates = [e for e in deduped if _cand(e, allow_dominant=False)]
-    if not blind_candidates:  # nothing outside the dominant lane — relax THAT first (not the pop cap)
-        blind_candidates = [e for e in deduped if _cand(e, allow_dominant=True)]
+    blind_candidates = [e for e in deduped if _cand(e, strict=True)]
+    if not blind_candidates:  # nothing outside the dominant lane — allow it (still not a
+        blind_candidates = [e for e in deduped if _cand(e, strict=False)]   # defining-taste, still pop-capped
 
     # Collaboration candidates: a PARTNERABLE entity you could actually team up with
     # (a brand/artist/show/game/podcast — not a place or a book), ownable (pop-capped).
@@ -191,15 +231,14 @@ Collaboration candidates (ownable — high affinity, lower fame; pick collaborat
 Write a marketing playbook as JSON with EXACTLY these keys:
 {{
   "persona_name": "short evocative name for the audience",
-  "persona_narrative": "2-3 sentences. Describe their cultural taste. Do NOT state age, gender, income or location — we have no demographic data.",
+  "persona_narrative": "2-3 sentences on the audience's cross-domain TASTE PATTERN (what kinds of culture they gravitate to, across domains). Do NOT state age/gender/income/location (no demographic data), and do NOT describe what any specific title is ABOUT — you only have names.",
   "blind_spot_name": "pick ONE name from the BLIND-SPOT candidates",
-  "blind_spot_line": "one memorable sentence about what this audience over-indexing on it reveals about them",
-  "collaborations": [{{"entity_name": "<name from the COLLABORATION candidates>", "pitch": "one concrete idea for the brand to collaborate WITH it"}}],
+  "collaborations": ["<entity_name from the COLLABORATION candidates>", "<another>", "<another>"],
   "content_themes": [{{"title": "...", "rationale": "..."}}],
   "channels": [{{"name": "...", "rationale": "..."}}]
 }}
-Give UP TO 3 collaborations (ONLY from the collaboration candidates — never the brand itself or a famous rival; fewer is fine), 3 content_themes, 3 channels. Only reference entity names that appear above.
-IMPORTANT: you only know each entity's NAME and DOMAIN (e.g. tv_show, podcast, artist). Do NOT assert what any entity is about — its plot, topic, or themes — you would be guessing. Write only about the AUDIENCE and the brand-to-entity relationship.
+Give UP TO 3 collaboration entity NAMES (ONLY from the collaboration candidates; fewer is fine), 3 content_themes, 3 channels. Only reference entity names that appear above.
+IMPORTANT: you only know each entity's NAME + DOMAIN. Do NOT assert what any specific title/show/book is about — its plot, topic, genre or themes — you would be guessing. In content_themes and channels, write about the AUDIENCE and the marketing STRATEGY, not about what any entity contains.
 Return ONLY the JSON."""
 
     resp = await llm.generate(
@@ -215,6 +254,9 @@ def assemble(brand: str, facts: dict, proposed: dict, qloo_calls=None, resolutio
     # blind spot — the LLM may only pick from the VETTED candidate pool (cross-domain,
     # above the popularity floor, punchy name). Resolving against ALL pulled entities
     # would let a native-brand, over-popular, or 100-char title through as the hero.
+    # Blind spot — pick from the VETTED candidate pool only. The hero LINE is TEMPLATED
+    # in code from name + domain + popularity: given only names, the model fabricates
+    # what entities are "about", so we assert ONLY the grounded relationship.
     blind = None
     cand_by_name = {e.name: e for e in facts["blind_candidates"]}
     bsn = proposed.get("blind_spot_name")
@@ -222,40 +264,46 @@ def assemble(brand: str, facts: dict, proposed: dict, qloo_calls=None, resolutio
     if not entity and facts["blind_candidates"]:
         entity = facts["blind_candidates"][0]
     if entity:
-        line = proposed.get("blind_spot_line") or f"This audience quietly over-indexes on {entity.name}."
-        blind = BlindSpot(entity=entity, line=line)
+        pop = int(round((entity.popularity or 0) * 100))
+        blind = BlindSpot(
+            entity=entity,
+            line=(f"This audience quietly over-indexes on {entity.name}, a {DOMAIN_LABEL.get(entity.domain, entity.domain)} "
+                  f"most {brand} rivals would never connect to them — and at {pop}% popularity it's still theirs to own."),
+        )
 
-    # collaborations — resolve ONLY from the ownable collab pool, and hard-exclude the
-    # brand itself or a famous incumbent even if the model picked one (grounding + the
-    # "ownable" thesis). Top up from the pool if the model under-delivered.
+    # Collaborations — resolve ONLY from the ownable, PARTNERABLE pool; pitches are
+    # TEMPLATED (name + domain + affinity + relationship), never LLM-fabricated.
     collab_pool = facts.get("collab_candidates", [])
     collab_by_name = {e.name: e for e in collab_pool}
     bn = _norm_name(brand)
 
     def _ok_collab(e):
-        return e and _norm_name(e.name) != bn and (e.popularity is None or e.popularity <= 0.9)
+        return (e and e.domain in COLLAB_DOMAINS and _norm_name(e.name) != bn
+                and (e.popularity is None or e.popularity <= 0.9))
 
     picked, seen = [], set()
     for c in proposed.get("collaborations", []):
-        e = collab_by_name.get(c.get("entity_name")) or name_index.get(c.get("entity_name"))
+        nm = c if isinstance(c, str) else (c.get("entity_name") if isinstance(c, dict) else None)
+        e = (collab_by_name.get(nm) or name_index.get(nm)) if nm else None
         if _ok_collab(e) and e.name not in seen:
-            picked.append((e, c.get("pitch", "")))
+            picked.append(e)
             seen.add(e.name)
-    for e in collab_pool:  # ensure 3 ownable collabs even if the model gave too few
+    for e in collab_pool:   # top up (shows fewer than 3 if the partnerable pool is thin)
         if len(picked) >= 3:
             break
         if _ok_collab(e) and e.name not in seen:
-            picked.append((e, ""))
+            picked.append(e)
             seen.add(e.name)
 
     collabs = []
-    for e, pitch in picked[:3]:
+    for e in picked[:3]:
         pop = e.popularity if e.popularity is not None else 0.5
         collabs.append(Collaboration(
             entity=e,
             arbitrage=round(e.affinity * (1 - pop), 3),
             cross_domain=(e.domain != NATIVE_DOMAIN),
-            pitch=pitch or f"Pair {brand} with {e.name}, a {e.domain} its audience quietly over-indexes on.",
+            pitch=(f"Collaborate with {e.name}, a {DOMAIN_LABEL.get(e.domain, e.domain)} this audience "
+                   f"over-indexes on ({int(round(e.affinity * 100))}% affinity) but rivals overlook."),
         ))
 
     persona = Persona(

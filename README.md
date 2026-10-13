@@ -131,12 +131,12 @@ comma-separated). See [`backend/.env.example`](./backend/.env.example).
 
 ### Example brands vs. your own
 
-The example chips — and ~14 common brands — **replay a frozen real investigation**
-(full trace + result) from an on-disk cache, so the showcase is instant and
-reliable and spends no API quota. **Typing any other brand runs the agent live**
-against Groq and Qloo (~15s) — that live path is the real thing. Regenerate the
-cache any time with `python backend/prewarm.py "<Brand>" ...` (requires live keys;
-the cache is gitignored and contains no Qloo data in this repo).
+The four example chips **replay a frozen real investigation** (full trace +
+result) from an on-disk cache, so the showcase is instant and reliable and spends
+no API quota. **Typing any other brand runs the agent live** against Groq and
+Qloo (~20s) — that live path is the real thing. Regenerate or extend the cache
+any time with `python backend/prewarm.py "<Brand>" ...` (requires live keys; the
+cache is gitignored and contains no Qloo data in this repo).
 
 ## Project layout
 

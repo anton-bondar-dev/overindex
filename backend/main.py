@@ -103,8 +103,24 @@ if not EXAMPLES_CACHE:
 # public and unauthenticated. Without this, a trivial POST loop drains the quota
 # and takes the demo down. Three gates: per-IP/minute, per-day total, concurrency.
 _ip_window: dict[str, deque] = defaultdict(deque)   # ip -> recent live-run timestamps
+_all_ip_window: dict[str, deque] = defaultdict(deque)  # ip -> ALL requests (cached + live)
 _daily = {"date": "", "count": 0}
 _live_runs = 0                                      # in-flight live runs
+
+
+def _ip_rate_ok(window: dict, ip: str, limit: int) -> bool:
+    """Generic sliding-minute per-IP gate; prunes its own table."""
+    now = time.monotonic()
+    if len(window) > 2048:
+        for k in [k for k, v in window.items() if not v or now - v[-1] > 60]:
+            window.pop(k, None)
+    dq = window[ip]
+    while dq and now - dq[0] > 60:
+        dq.popleft()
+    if len(dq) >= limit:
+        return False
+    dq.append(now)
+    return True
 _RL_MESSAGES = {
     "rate": "Too many analyses from your network this minute — give it a few seconds.",
     "daily": "The live demo has hit today's analysis limit. Try an example (instant), or come back tomorrow.",
@@ -113,12 +129,17 @@ _RL_MESSAGES = {
 
 
 def _client_ip(request: Request) -> str:
-    """Real client IP behind the nginx proxy (X-Forwarded-For / X-Real-IP), so the
-    per-IP limiter keys on the visitor, not on 127.0.0.1."""
+    """Real client IP behind the nginx proxy. X-Real-IP is set by our nginx to the
+    actual $remote_addr (trusted); the LEFT-most X-Forwarded-For element is
+    client-spoofable, so prefer X-Real-IP and otherwise take the right-most
+    (proxy-added) XFF hop."""
+    xri = request.headers.get("x-real-ip")
+    if xri:
+        return xri.strip()
     xff = request.headers.get("x-forwarded-for")
     if xff:
-        return xff.split(",")[0].strip()
-    return (request.headers.get("x-real-ip") or (request.client.host if request.client else "unknown")).strip()
+        return xff.split(",")[-1].strip()
+    return request.client.host if request.client else "unknown"
 
 
 def _reserve_live_run(ip: str) -> str | None:
@@ -213,9 +234,12 @@ async def start_analyze(body: AnalyzeIn, request: Request):
     brand = (body.brand or "").strip()
     if not (2 <= len(brand) <= 200):
         raise HTTPException(422, "brand must be 2-200 characters")
-    # Global registry cap (covers the cached path too): bounds memory + background
-    # tasks even under a burst of example-chip clicks, which the per-IP/live limiter
-    # intentionally does not gate.
+    ip = _client_ip(request)
+    # General per-IP spam gate — covers the CACHED path too, so one client can't flood
+    # the run registry (the live path is additionally gated below).
+    if not _ip_rate_ok(_all_ip_window, ip, settings.per_ip_per_min * 4):
+        raise HTTPException(429, "Too many requests — please slow down.")
+    # Global registry cap: bounds memory + background tasks under a burst.
     if len(RUNS) >= settings.max_total_runs:
         raise HTTPException(503, "The demo is at capacity right now — please retry in a moment.")
     run_id = uuid.uuid4().hex[:12]
@@ -224,8 +248,7 @@ async def start_analyze(body: AnalyzeIn, request: Request):
         RUNS[run_id] = Run()
         asyncio.create_task(_replay(run_id, cached))    # frozen real run — always free
         return {"run_id": run_id}
-    # Live path spends shared Groq + Qloo quota — rate-limit it.
-    ip = _client_ip(request)
+    # Live path spends shared Groq + Qloo quota — rate-limit it further.
     reason = _reserve_live_run(ip)
     if reason:
         raise HTTPException(429, _RL_MESSAGES[reason])
