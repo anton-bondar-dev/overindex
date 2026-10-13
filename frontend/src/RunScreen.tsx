@@ -64,7 +64,7 @@ function planActive(steps: Step[], synthesizing: boolean): Set<string> {
   return a
 }
 
-export function RunScreen({ runId, onDone }: { runId: string; onDone: () => void }) {
+export function RunScreen({ runId, onDone, onHome }: { runId: string; onDone: () => void; onHome: () => void }) {
   const { events, status, error } = useAgentStream(runId)
   const steps = useMemo(() => toSteps(events), [events])
   const synthesizing = events.some((e) => e.type === 'synthesizing')
@@ -99,9 +99,8 @@ export function RunScreen({ runId, onDone }: { runId: string; onDone: () => void
           </div>
           <div className="flex items-center gap-4 font-mono text-xs tabular-nums text-text-dim">
             <span>{mmss}</span>
-            <span>
-              {steps.length} / ~6 calls
-            </span>
+            <span>{steps.length} / ~6 calls</span>
+            <button onClick={onHome} className="transition-colors hover:text-accent-hi">↩ start over</button>
           </div>
         </div>
         <h1 className="mt-2 text-2xl font-semibold tracking-tight text-text-hi">{brand || 'Analyzing…'}</h1>
@@ -122,8 +121,16 @@ export function RunScreen({ runId, onDone }: { runId: string; onDone: () => void
         </div>
       </div>
 
-      {error && (
-        <p className="mt-5 rounded-lg border border-err/30 bg-err/10 px-3 py-2 text-sm text-err">{error}</p>
+      {status === 'error' && (
+        <div className="mt-5 rounded-lg border border-err/30 bg-err/10 px-4 py-3">
+          <p className="text-sm text-err">{error || 'Something went wrong with this run.'}</p>
+          <button
+            onClick={onHome}
+            className="mt-2 rounded-[8px] bg-accent px-3 py-1.5 text-sm font-medium text-text-hi transition-opacity hover:opacity-90"
+          >
+            Start over
+          </button>
+        </div>
       )}
 
       {/* the rail */}

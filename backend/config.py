@@ -30,11 +30,16 @@ class Settings(BaseSettings):
     max_qloo_concurrency: int = 5          # parallel in-flight Qloo calls
     per_ip_per_min: int = 10               # novel (non-cached) runs per IP / minute
     daily_fresh_run_cap: int = 200         # novel LLM-hitting runs per day, total
+    max_live_runs: int = 6                 # max concurrent live (non-cached) runs
+    run_deadline_s: int = 90               # hard wall-clock cap on a single live run
     cache_ttl_days: int = 7
+    run_grace_s: int = 300                 # keep a finished run fetchable this long, then evict
 
     # Deploy
     public_base_url: str = "https://overindex.overpro.fit"
-    allowed_origins: str = "*"             # tighten to the demo origin for prod
+    # Default to the demo origin, NOT "*" — the frontend is same-origin anyway, so
+    # a wildcard only lets any site drive quota-spending runs from a visitor's browser.
+    allowed_origins: str = "https://overindex.overpro.fit"
 
     def gemini_key_pool(self) -> list[str]:
         """All Gemini keys to rotate across (pool first, else the single key)."""

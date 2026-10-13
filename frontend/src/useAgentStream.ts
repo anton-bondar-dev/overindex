@@ -40,6 +40,7 @@ export function useAgentStream(runId: string): StreamState {
       }
       if (ev.type === 'error') {
         endedRef.current = true
+        es.close()
         setState((s) => ({ ...s, status: 'error', error: ev.message }))
         return
       }
@@ -47,8 +48,8 @@ export function useAgentStream(runId: string): StreamState {
     }
 
     es.onerror = () => {
+      es.close() // always close — any terminal state must not auto-reconnect
       if (endedRef.current) return
-      es.close()
       // SSE dropped before completion — poll the result instead.
       void pollResult()
     }
@@ -68,6 +69,10 @@ export function useAgentStream(runId: string): StreamState {
           return
         }
         await new Promise((r) => setTimeout(r, 3000))
+      }
+      if (!endedRef.current) {
+        endedRef.current = true
+        setState((s) => ({ ...s, status: 'error', error: 'This run took too long to load. Please try again.' }))
       }
     }
 

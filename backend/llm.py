@@ -9,6 +9,7 @@ alongside the pre-cached example runs that never hit the API at all.
 from __future__ import annotations
 
 import asyncio
+import random
 
 import httpx
 
@@ -22,14 +23,15 @@ class LLMError(RuntimeError):
 
 
 class GeminiPool:
-    def __init__(self, keys=None, models=None, thinking_budget=None, timeout=60.0):
+    def __init__(self, keys=None, models=None, thinking_budget=None, timeout=30.0):
         self.keys = keys or settings.gemini_key_pool()
         if not self.keys:
             raise LLMError("no Gemini keys configured (GEMINI_API_KEYS)")
         self.models = models or settings.gemini_model_chain()
         self.model = self.models[0]  # primary, for display
         self.default_thinking = settings.gemini_thinking_budget if thinking_budget is None else thinking_budget
-        self._idx = 0
+        # Start rotation at a random key so concurrent runs don't all stampede key[0].
+        self._idx = random.randrange(len(self.keys))
         self._client = httpx.AsyncClient(timeout=timeout)
 
     async def aclose(self):
@@ -66,9 +68,12 @@ class GeminiPool:
                 gc["thinkingConfig"] = {"thinkingBudget": tb}
             body = {**base, "generationConfig": gc}
             for ki, key in self._key_order():
-                url = f"{GEMINI_BASE}/models/{model}:generateContent?key={key}"
+                url = f"{GEMINI_BASE}/models/{model}:generateContent"
                 try:
-                    r = await self._client.post(url, json=body, headers={"Content-Type": "application/json"})
+                    r = await self._client.post(
+                        url, json=body,
+                        headers={"Content-Type": "application/json", "x-goog-api-key": key},
+                    )
                 except httpx.RequestError as exc:
                     last_err = f"net:{exc}"
                     continue  # next key

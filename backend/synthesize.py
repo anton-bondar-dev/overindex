@@ -151,10 +151,13 @@ Return ONLY the JSON."""
 def assemble(brand: str, facts: dict, proposed: dict, qloo_calls=None, resolution=None) -> AnalysisResult:
     name_index = {e.name: e for es in facts["by_domain"].values() for e in es}
 
-    # blind spot — entity must be one we actually pulled
+    # blind spot — the LLM may only pick from the VETTED candidate pool (cross-domain,
+    # above the popularity floor, punchy name). Resolving against ALL pulled entities
+    # would let a native-brand, over-popular, or 100-char title through as the hero.
     blind = None
+    cand_by_name = {e.name: e for e in facts["blind_candidates"]}
     bsn = proposed.get("blind_spot_name")
-    entity = name_index.get(bsn) if bsn else None
+    entity = cand_by_name.get(bsn) if bsn else None
     if not entity and facts["blind_candidates"]:
         entity = facts["blind_candidates"][0]
     if entity:

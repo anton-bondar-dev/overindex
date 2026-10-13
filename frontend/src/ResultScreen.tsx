@@ -23,6 +23,7 @@ export function ResultScreen({ runId, onHome }: { runId: string; onHome: () => v
         }
         await new Promise((res) => setTimeout(res, 2000))
       }
+      if (!cancelled) setErr('This is taking longer than expected — please try again.')
     })()
     return () => {
       cancelled = true
@@ -107,6 +108,7 @@ export function ResultScreen({ runId, onHome }: { runId: string; onHome: () => v
       )}
 
       {/* TASTE FINGERPRINT (grounded) */}
+      {result.domains.length > 0 && (
       <Section kind="grounded" title="Taste fingerprint by domain">
         <div className="mt-3 grid gap-x-8 gap-y-5 sm:grid-cols-2">
           {spine.map((d) => (
@@ -142,6 +144,7 @@ export function ResultScreen({ runId, onHome }: { runId: string; onHome: () => v
           </div>
         </details>
       </Section>
+      )}
 
       {/* COLLABORATIONS (proposed) */}
       {result.collaborations.length > 0 && (
@@ -187,6 +190,7 @@ export function ResultScreen({ runId, onHome }: { runId: string; onHome: () => v
       )}
 
       {/* METHODOLOGY (grounded) */}
+      {result.qloo_calls.length > 0 && (
       <Section kind="grounded" title="Methodology" sub={`${result.qloo_calls.length} real Qloo API calls`}>
         <div className="mt-3 overflow-hidden rounded-[8px] border border-border">
           <table className="mono-num w-full text-[12px]">
@@ -201,6 +205,7 @@ export function ResultScreen({ runId, onHome }: { runId: string; onHome: () => v
           </table>
         </div>
       </Section>
+      )}
 
       <p className="mt-12 text-[12px] text-text-faint">
         Scores are Qloo Taste AI signals — affinity (0–100, relevance to this audience) and popularity (0–100,
@@ -331,17 +336,9 @@ function OpportunityScatter({ items }: { items: EntityAffinity[] }) {
   const ownableX = p0 + (p1 - p0) * 0.4   // low-popularity (left) zone = most ownable
   const hidden = items.length - pts.length
   const tfaint = { fill: 'var(--color-text-faint)' } as const
-  // greedy non-overlapping direct labels for the most-ownable points
-  const placed: Array<{ x: number; y: number }> = []
-  const labels: Array<{ e: EntityAffinity; cx: number; cy: number; left: boolean }> = []
-  for (const e of [...pts].sort((a, b) => oppScore(b) - oppScore(a))) {
-    if (labels.length >= 3) break
-    const cx = x(e.popularity as number)
-    const cy = y(e.affinity)
-    if (placed.some((p) => Math.abs(p.x - cx) < 64 && Math.abs(p.y - cy) < 15)) continue
-    placed.push({ x: cx, y: cy })
-    labels.push({ e, cx, cy, left: cx > W * 0.6 })
-  }
+  // No direct per-point labels: labelling only a few points reads as a bug, and
+  // labelling all of them overlaps into noise. Every point is identified the same
+  // way — on hover (the tooltip below).
 
   return (
     <div className="relative">
@@ -363,19 +360,7 @@ function OpportunityScatter({ items }: { items: EntityAffinity[] }) {
             </g>
           )
         })}
-        {labels.map(({ e, cx, cy, left }) =>
-          pts[hover ?? -1]?.id === e.id ? null : (
-            <text
-              key={'lbl-' + e.id}
-              x={left ? cx - 9 : cx + 9}
-              y={cy + 3}
-              textAnchor={left ? 'end' : 'start'}
-              style={{ fill: 'var(--color-text-dim)', fontSize: 10 }}
-            >
-              {e.name.length > 16 ? e.name.slice(0, 15) + '…' : e.name}
-            </text>
-          ),
-        )}
+        {/* labels intentionally omitted — identify any point on hover (consistent for all) */}
       </svg>
       {hover != null && pts[hover] && (
         <div
@@ -390,7 +375,10 @@ function OpportunityScatter({ items }: { items: EntityAffinity[] }) {
           </div>
         </div>
       )}
-      {hidden > 0 && <div className="mt-1 text-[11px] text-text-faint">{hidden} with unknown reach not shown</div>}
+      <div className="mt-1 flex justify-between text-[11px] text-text-faint">
+        <span>Hover a point for detail</span>
+        {hidden > 0 && <span>{hidden} with unknown reach not shown</span>}
+      </div>
     </div>
   )
 }

@@ -28,7 +28,7 @@ export default function App() {
 
   if (route.name === 'run') {
     // navigate to the result by run id (the result is fetched via /api/result/{run_id})
-    return <RunScreen key={route.id} runId={route.id} onDone={() => nav(`/r/${route.id}`)} />
+    return <RunScreen key={route.id} runId={route.id} onDone={() => nav(`/r/${route.id}`)} onHome={() => nav('/')} />
   }
   if (route.name === 'result') {
     return <ResultScreen key={route.id} runId={route.id} onHome={() => nav('/')} />
