@@ -28,6 +28,9 @@ from agent_core import run_investigation
 
 POP_FLOOR = 0.15          # blind-spot candidates must be at least this recognizable
 NATIVE_DOMAIN = "brand"   # the brand's own domain — "cross-domain" means != this
+BLIND_SPOT_MAX_NAME = 50  # the headline blind spot must read as a punchy, recognizable
+                          # NAME — not a subtitle-laden 100-char book title that breaks
+                          # the hero and reads as noise. Caps the candidate pool only.
 
 
 def _entities_by_domain(gathered) -> dict:
@@ -74,7 +77,9 @@ def build_facts(gathered) -> dict:
     opportunities = sorted(all_ents, key=_opportunity, reverse=True)
     blind_candidates = [
         e for e in opportunities
-        if e.domain != NATIVE_DOMAIN and (e.popularity is None or e.popularity >= POP_FLOOR)
+        if e.domain != NATIVE_DOMAIN
+        and (e.popularity is None or e.popularity >= POP_FLOOR)
+        and e.name and len(e.name) <= BLIND_SPOT_MAX_NAME
     ]
     return {
         "by_domain": by_domain,
