@@ -131,11 +131,12 @@ export function RunScreen({ runId, onDone, onHome }: { runId: string; onDone: ()
       {status === 'error' && (
         <div className="mt-5 rounded-lg border border-err/30 bg-err/10 px-4 py-3">
           <p className="text-sm text-err">{error || 'Something went wrong with this run.'}</p>
+          <p className="mt-1 text-sm text-text-dim">The ready examples open instantly — try one.</p>
           <button
             onClick={onHome}
             className="mt-2 rounded-[8px] bg-accent px-3 py-1.5 text-sm font-medium text-text-hi transition-opacity hover:opacity-90"
           >
-            Start over
+            ← Back to examples
           </button>
         </div>
       )}

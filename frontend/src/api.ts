@@ -6,7 +6,18 @@ export async function startAnalyze(brand: string): Promise<string> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ brand }),
   })
-  if (!r.ok) throw new Error(`Could not start analysis (${r.status})`)
+  if (!r.ok) {
+    // Surface the backend's friendly detail (e.g. the rate-limit message) instead
+    // of a bare status code, so a busy/limited run reads as graceful.
+    let msg = `Could not start analysis (${r.status})`
+    try {
+      const e = await r.json()
+      if (e && typeof e.detail === 'string') msg = e.detail
+    } catch {
+      /* non-JSON error body */
+    }
+    throw new Error(msg)
+  }
   const d = await r.json()
   return d.run_id as string
 }

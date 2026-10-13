@@ -71,7 +71,11 @@ export function InputScreen({ onStart }: { onStart: (runId: string) => void }) {
         </button>
       </form>
 
-      {err && <p className="mt-3 text-sm text-neg">{err}</p>}
+      {err && (
+        <p className="mt-3 text-sm text-neg">
+          {err} <span className="text-text-dim">— or try a ready example below, they open instantly.</span>
+        </p>
+      )}
 
       <div className="mt-6">
         <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-text-faint">Or try one</div>
