@@ -143,7 +143,7 @@ Return ONLY the JSON."""
 
     resp = await llm.generate(
         [{"role": "user", "content": prompt}],
-        max_output_tokens=2048, temperature=0.85,
+        max_output_tokens=3072, temperature=0.85,
     )
     return _parse_json(oai_text(resp))
 

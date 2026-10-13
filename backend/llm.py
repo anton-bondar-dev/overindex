@@ -155,11 +155,17 @@ class GroqPool:
         n = len(self.keys)
         return [(i, self.keys[(self._idx + i) % n]) for i in range(n)]
 
-    async def generate(self, messages, tools=None, temperature=0.7, max_output_tokens=2048, **_ignore):
+    async def generate(self, messages, tools=None, temperature=0.7, max_output_tokens=2048,
+                       reasoning_effort="low", **_ignore):
         """One chat/completions call. Returns the raw response JSON. Rotates keys
         on 429, falls to the next model on 5xx. Extra kwargs (e.g. thinking_budget,
-        system) are accepted and ignored for a drop-in signature."""
-        body = {"messages": messages, "temperature": temperature, "max_tokens": max_output_tokens}
+        system) are accepted and ignored for a drop-in signature.
+
+        gpt-oss / qwen are REASONING models: with a low token cap their reasoning
+        eats the budget before the tool_calls are emitted, so the turn comes back
+        empty. reasoning_effort='low' + a roomy max_tokens keeps the loop moving."""
+        body = {"messages": messages, "temperature": temperature, "max_tokens": max_output_tokens,
+                "reasoning_effort": reasoning_effort}
         if tools:
             body["tools"] = tools
             body["tool_choice"] = "auto"

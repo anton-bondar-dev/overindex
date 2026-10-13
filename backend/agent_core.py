@@ -138,6 +138,23 @@ async def execute_tool(qloo, name: str, args: dict):
     return {"error": f"unknown tool {name}"}, f"unknown tool {name}"
 
 
+def _compact_for_llm(name: str, result: dict) -> dict:
+    """Trim a tool result before feeding it back to the model. affinity_scan
+    returns 15 entities per domain; across 5-7 domains that blows past Groq's
+    free-tier tokens-per-minute cap. The model only needs names + scores to judge
+    domains and spot a blind spot — the FULL result still goes to `gathered` for
+    the dashboard."""
+    if name == "affinity_scan" and isinstance(result, dict) and result.get("entities"):
+        return {
+            "domain": result.get("domain"),
+            "entities": [
+                {"name": e.get("name"), "affinity": e.get("affinity"), "popularity": e.get("popularity")}
+                for e in result["entities"][:8]
+            ],
+        }
+    return result
+
+
 async def run_investigation(brand: str, qloo, llm, emit=None, max_steps: int = 14):
     """Drive the ReAct loop. `emit` (async callable) receives RunEvent dicts for
     the live trace; everything is also collected and returned."""
@@ -153,7 +170,7 @@ async def run_investigation(brand: str, qloo, llm, emit=None, max_steps: int = 1
 
     await _emit({"type": "run_start", "brand": brand})
     while steps < max_steps:
-        resp = await llm.generate(messages, tools=TOOLS, temperature=0.7, max_output_tokens=1024)
+        resp = await llm.generate(messages, tools=TOOLS, temperature=0.7, max_output_tokens=2560)
         calls = oai_tool_calls(resp)
         thought = oai_text(resp)
         if thought:
@@ -189,7 +206,7 @@ async def run_investigation(brand: str, qloo, llm, emit=None, max_steps: int = 1
             except Exception as exc:
                 result = {"error": str(exc)}
                 await _emit({"type": "step_result", "id": sid, "tool": name, "summary": f"error: {exc}", "status": "error"})
-            return {"role": "tool", "tool_call_id": call_id, "content": json.dumps(result)}
+            return {"role": "tool", "tool_call_id": call_id, "content": json.dumps(_compact_for_llm(name, result))}
 
         tool_msgs = await asyncio.gather(*[_run(*b) for b in batch])
         messages.extend(tool_msgs)

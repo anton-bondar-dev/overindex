@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     llm_provider: str = "groq"          # "groq" | "gemini"
     groq_api_key: str = ""              # single key
     groq_api_keys: str = ""             # comma-separated pool (rotate on 429)
-    groq_models: str = "llama-3.3-70b-versatile,llama-3.1-8b-instant"
+    groq_models: str = "openai/gpt-oss-120b,openai/gpt-oss-20b,qwen/qwen3.8-27b"
 
     # Limits — protect the Qloo monthly budget AND the Gemini daily quota
     max_qloo_concurrency: int = 5          # parallel in-flight Qloo calls
