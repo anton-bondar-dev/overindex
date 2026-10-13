@@ -23,6 +23,7 @@ from synthesize import analyze
 
 CACHE_DIR = Path(__file__).parent / "cache"
 PER_BRAND_TIMEOUT = 150  # abort a single brand that the slow LLM endpoint wedges
+PACE_SECONDS = 65        # wait between brands so Groq's per-minute token bucket refills
 
 # Brands judges are likely to TYPE (not just the 4 input chips) all REPLAY a frozen
 # real run -> instant and quota-free, which matters because Gemini is heavily
@@ -74,7 +75,9 @@ async def main() -> None:
         return
     brands = sys.argv[1:] or EXAMPLES
     print(f"Pre-warming {len(brands)} brand(s) into {CACHE_DIR} ...")
-    for brand in brands:
+    for i, brand in enumerate(brands):
+        if i:
+            await asyncio.sleep(PACE_SECONDS)  # let Groq's per-minute token bucket refill
         try:
             await warm_one(brand)
         except Exception as exc:  # noqa: BLE001 - report and continue to the next

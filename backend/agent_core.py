@@ -31,7 +31,7 @@ How to work:
    not a failure. Say when you do it.
 2. Then scan FAST and in PARALLEL. In your next turn, request affinity_scan for
    ALL the domains you judge relevant AT ONCE — emit several affinity_scan calls
-   in a SINGLE response (they run concurrently). Choose the 5-7 domains most likely
+   in a SINGLE response (they run concurrently). Choose the 4-5 domains most likely
    to reveal this audience; skip ones unlikely to matter. One short line on why.
 3. Qloo gives affinity (0-1 relevance to this audience) and popularity (0-1). The
    interesting signal is HIGH affinity + relatively LOW popularity (ownable,
@@ -148,8 +148,8 @@ def _compact_for_llm(name: str, result: dict) -> dict:
         return {
             "domain": result.get("domain"),
             "entities": [
-                {"name": e.get("name"), "affinity": e.get("affinity"), "popularity": e.get("popularity")}
-                for e in result["entities"][:8]
+                {"name": e.get("name"), "affinity": e.get("affinity")}
+                for e in result["entities"][:6]
             ],
         }
     return result
@@ -166,7 +166,7 @@ async def run_investigation(brand: str, qloo, llm, emit=None, max_steps: int = 1
         {"role": "system", "content": SYSTEM},
         {"role": "user", "content": f"Investigate this brand's cultural audience: {brand}"},
     ]
-    gathered, trace, steps = [], [], 0
+    gathered, trace, steps, nudged = [], [], 0, False
 
     await _emit({"type": "run_start", "brand": brand})
     while steps < max_steps:
@@ -177,6 +177,17 @@ async def run_investigation(brand: str, qloo, llm, emit=None, max_steps: int = 1
             await _emit({"type": "thought", "text": thought})
             trace.append({"type": "thought", "text": thought})
         if not calls:
+            # gpt-oss sometimes concludes right after resolve_entity. If it hasn't
+            # actually scanned anything yet, nudge it once rather than ship a
+            # domain-less playbook.
+            if not any(g["tool"] == "affinity_scan" for g in gathered) and not nudged:
+                nudged = True
+                messages.append({
+                    "role": "user",
+                    "content": ("You haven't scanned any domains yet. Call affinity_scan now for the "
+                                "5-7 domains most relevant to this brand's audience — all in one turn."),
+                })
+                continue
             await _emit({"type": "investigation_done", "note": thought})
             break
 
