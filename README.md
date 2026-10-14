@@ -13,7 +13,40 @@ collaborations, content themes and channels.
 
 This is an analyst that *investigates*, not a search box that returns rows.
 
-<!-- SCREENSHOTS: input screen · live agent trace · results dashboard — added to docs/screenshots/ before release -->
+**1 · Type a brand.**
+
+![Overindex input screen](docs/screenshots/01-input.png)
+
+**2 · Watch the agent interrogate Qloo, live — its reasoning and every API call stream in.**
+
+![Live agent reasoning trace](docs/screenshots/02-live-trace.png)
+
+**3 · Get an audience playbook — a persona and a surprising cross-domain blind spot.**
+
+![Audience playbook: persona and blind spot](docs/screenshots/03-playbook.png)
+
+<details>
+<summary><b>More of the dashboard</b> — over-index scatter · taste fingerprint · collaborations &amp; content · methodology</summary>
+
+<br>
+
+**What they quietly over-index on** (high affinity, low popularity = ownable):
+
+![Over-index scatter plot](docs/screenshots/04-scatter.png)
+
+**Taste fingerprint by domain** (every entity + affinity, grounded in Qloo):
+
+![Taste fingerprint by domain](docs/screenshots/05-fingerprint.png)
+
+**Collaborations & content** (agent proposals, on top of the grounded data):
+
+![Collaborations and content ideas](docs/screenshots/06-collaborations.png)
+
+**Methodology** — the real Qloo calls behind the run:
+
+![Methodology: real Qloo API calls](docs/screenshots/07-methodology.png)
+
+</details>
 
 ---
 
