@@ -165,6 +165,12 @@ def build_facts(gathered, brand: str = "") -> dict:
     blind_candidates = [e for e in deduped if _cand(e, strict=True)]
     if not blind_candidates:  # nothing outside the dominant lane — allow it (still not a
         blind_candidates = [e for e in deduped if _cand(e, strict=False)]   # defining-taste, still pop-capped
+    if not blind_candidates:  # last resort: widen the ceiling so there IS a hero (still a
+        blind_candidates = [   # non-defining media entity; the line adapts to higher popularity)
+            e for e in deduped
+            if e.domain in BLIND_DOMAINS and e.id not in defining_ids and e.popularity is not None
+            and POP_FLOOR <= e.popularity <= 0.80 and bool(e.name) and len(e.name) <= BLIND_SPOT_MAX_NAME
+        ]
 
     # Collaboration candidates: a PARTNERABLE entity you could actually team up with
     # (a brand/artist/show/game/podcast — not a place or a book), ownable (pop-capped).
@@ -265,10 +271,13 @@ def assemble(brand: str, facts: dict, proposed: dict, qloo_calls=None, resolutio
         entity = facts["blind_candidates"][0]
     if entity:
         pop = int(round((entity.popularity or 0) * 100))
+        tail = (f"and at {pop}% popularity it's still theirs to own."
+                if (entity.popularity or 0) <= 0.5
+                else "an unexpected cross-cultural signal to lean into early.")
         blind = BlindSpot(
             entity=entity,
             line=(f"This audience quietly over-indexes on {entity.name}, a {DOMAIN_LABEL.get(entity.domain, entity.domain)} "
-                  f"most {brand} rivals would never connect to them — and at {pop}% popularity it's still theirs to own."),
+                  f"most {brand} rivals would never connect to them — {tail}"),
         )
 
     # Collaborations — resolve ONLY from the ownable, PARTNERABLE pool; pitches are
