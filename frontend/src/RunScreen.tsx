@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAgentStream } from './useAgentStream'
 import { TOOL_ENDPOINT } from './types'
 import type { RunEvent } from './types'
+import { DEMO, sleep } from './demo'
 
 type Step = {
   id?: string
@@ -57,19 +58,83 @@ function endpointLine(tool: string, args: Record<string, unknown>): string {
 }
 
 const PLAN = ['Locate', 'Scan', 'Assemble']
-function planActive(steps: Step[], synthesizing: boolean): Set<string> {
+function planActive(steps: Step[], assembling: boolean): Set<string> {
   const a = new Set<string>()
   for (const s of steps) {
     if (s.tool === 'resolve_entity') a.add('Locate')
     if (s.tool === 'affinity_scan') a.add('Scan')
   }
-  if (synthesizing) a.add('Assemble')
+  if (assembling) a.add('Assemble')
   return a
+}
+
+type Phase = 'planning' | 'tracing' | 'converge' | 'done' | 'navigate'
+
+/** DEMO ONLY. A cached example's SSE events arrive almost at once, so the trace
+ *  would render every step already-resolved — the "watch it think" centerpiece
+ *  would be dead. Once all events are in, this releases them on a readable
+ *  timeline: each step shows RUNNING (shimmer + reason) then RESOLVED, driving a
+ *  real wall-clock that freezes at the end. No-op unless DEMO.on. */
+function usePacedTrace(all: Step[], ready: boolean) {
+  const [n, setN] = useState(0) // steps fully resolved so far
+  const [running, setRunning] = useState(false) // step n is in its running phase
+  const [phase, setPhase] = useState<Phase>('planning')
+  const [elapsed, setElapsed] = useState(0)
+  const started = useRef(false)
+
+  useEffect(() => {
+    if (!DEMO.on || !ready || all.length === 0 || started.current) return
+    started.current = true
+    let cancelled = false
+    const t0 = Date.now()
+    const ticker = window.setInterval(() => {
+      if (!cancelled) setElapsed(Math.floor((Date.now() - t0) / 1000))
+    }, 250)
+
+    void (async () => {
+      setPhase('tracing')
+      await sleep(DEMO.firstStepDelay)
+      for (let i = 0; i < all.length && !cancelled; i++) {
+        setN(i)
+        setRunning(true)
+        const extra = (all[i].args?.domain as string) === 'tv_show' ? DEMO.tvShowExtra : 0
+        await sleep(DEMO.runningDwell + extra)
+        if (cancelled) break
+        setRunning(false) // step i resolves
+        await sleep(DEMO.resolvedHold)
+      }
+      if (cancelled) return
+      setN(all.length)
+      window.clearInterval(ticker) // freeze the timer on the last resolve
+      setPhase('converge')
+      await sleep(DEMO.convergeDwell)
+      if (cancelled) return
+      setPhase('done')
+      await sleep(DEMO.counterBeat) // hold on the frozen timer + call count
+      if (!cancelled) setPhase('navigate')
+    })()
+
+    return () => {
+      cancelled = true
+      window.clearInterval(ticker)
+    }
+  }, [ready, all.length])
+
+  const steps = useMemo(() => {
+    const upto = running ? n + 1 : n
+    return all.slice(0, upto).map((s, i) =>
+      running && i === n ? { ...s, status: 'running' as const, summary: undefined, latency_ms: undefined } : s,
+    )
+  }, [all, n, running])
+
+  const calls = running ? n + 1 : n
+  const thought = running && all[n] ? reason(all[n].tool, all[n].args) : ''
+  return { steps, calls, elapsed, phase, thought }
 }
 
 export function RunScreen({ runId, onDone, onHome }: { runId: string; onDone: () => void; onHome: () => void }) {
   const { events, status, error } = useAgentStream(runId)
-  const steps = useMemo(() => toSteps(events), [events])
+  const allSteps = useMemo(() => toSteps(events), [events])
   const synthesizing = events.some((e) => e.type === 'synthesizing')
   const brand = events.find((e) => e.type === 'run_start')?.brand ?? ''
   const latestThought = useMemo(() => {
@@ -83,22 +148,40 @@ export function RunScreen({ runId, onDone, onHome }: { runId: string; onDone: ()
     return ts.length ? ts[ts.length - 1].text ?? '' : ''
   }, [events])
 
-  const [elapsed, setElapsed] = useState(0)
+  const [normalElapsed, setNormalElapsed] = useState(0)
   useEffect(() => {
-    if (status !== 'running') return
-    const t = setInterval(() => setElapsed((e) => e + 1), 1000)
+    if (DEMO.on || status !== 'running') return
+    const t = setInterval(() => setNormalElapsed((e) => e + 1), 1000)
     return () => clearInterval(t)
   }, [status])
+
+  const paced = usePacedTrace(allSteps, status === 'done')
+
+  // Unify the two sources so the markup renders once.
+  const demo = DEMO.on
+  const steps = demo ? paced.steps : allSteps
+  const elapsed = demo ? paced.elapsed : normalElapsed
+  const callCount = demo ? paced.calls : allSteps.length
+  const assembling = demo ? paced.phase === 'converge' : synthesizing
+  const showConverge = demo ? paced.phase === 'converge' || paced.phase === 'done' || paced.phase === 'navigate' : synthesizing || status === 'done'
+  const convergeDone = demo ? paced.phase === 'done' || paced.phase === 'navigate' : status === 'done'
+  const thought = demo ? paced.thought : latestThought
+  const thoughtShown = demo ? !!paced.thought : !!latestThought && status === 'running'
+
   const mmss = `${String(Math.floor(elapsed / 60)).padStart(2, '0')}:${String(elapsed % 60).padStart(2, '0')}`
 
   useEffect(() => {
+    if (demo) {
+      if (paced.phase === 'navigate') onDone()
+      return
+    }
     if (status === 'done') {
       const t = setTimeout(onDone, 1100)
       return () => clearTimeout(t)
     }
-  }, [status, onDone])
+  }, [demo, paced.phase, status, onDone])
 
-  const active = planActive(steps, synthesizing)
+  const active = planActive(steps, assembling)
   const lastRunningIdx = steps.map((s) => s.status).lastIndexOf('running')
 
   return (
@@ -112,7 +195,7 @@ export function RunScreen({ runId, onDone, onHome }: { runId: string; onDone: ()
           </div>
           <div className="flex items-center gap-4 font-mono text-xs tabular-nums text-text-dim">
             <span>{mmss}</span>
-            <span>{steps.length} Qloo calls</span>
+            <span>{callCount} Qloo calls</span>
             <button onClick={onHome} className="transition-colors hover:text-accent-hi">↩ start over</button>
           </div>
         </div>
@@ -134,14 +217,14 @@ export function RunScreen({ runId, onDone, onHome }: { runId: string; onDone: ()
         </div>
       </div>
 
-      {latestThought && status === 'running' && (
-        <p className="mt-4 text-sm leading-snug text-text-dim">
+      {thoughtShown && (
+        <p key={thought} className="mt-4 text-sm leading-snug text-text-dim" style={demo ? { animation: 'fade-swap 240ms var(--ease-out)' } : undefined}>
           <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-accent-hi">reasoning</span>{' '}
-          {latestThought}
+          {thought}
         </p>
       )}
 
-      {status === 'error' && (
+      {status === 'error' && !demo && (
         <div className="mt-5 rounded-lg border border-err/30 bg-err/10 px-4 py-3">
           <p className="text-sm text-err">{error || 'Something went wrong with this run.'}</p>
           <p className="mt-1 text-sm text-text-dim">The ready examples open instantly — try one.</p>
@@ -161,7 +244,7 @@ export function RunScreen({ runId, onDone, onHome }: { runId: string; onDone: ()
           const isActive = i === lastRunningIdx
           const done = s.status !== 'running'
           return (
-            <li key={i} className="relative pb-5" style={{ animation: 'drop-in 220ms var(--ease-out)' }}>
+            <li key={i} className="relative pb-5" style={{ animation: 'drop-in 260ms var(--ease-out)' }}>
               <span
                 className="absolute -left-6 top-1.5 h-[11px] w-[11px] rounded-full ring-2 ring-bg"
                 style={
@@ -172,7 +255,7 @@ export function RunScreen({ runId, onDone, onHome }: { runId: string; onDone: ()
                       : { background: 'var(--color-ok)' }
                 }
               />
-              <div className={done && !isActive ? 'opacity-55 transition-opacity' : ''}>
+              <div className={done && !isActive ? 'opacity-55 transition-opacity' : 'transition-opacity'}>
                 <div className="flex items-baseline justify-between gap-3">
                   <span className="text-sm font-medium text-text-hi">{verb(s.tool, s.args)}</span>
                   {s.latency_ms != null && (
@@ -207,24 +290,24 @@ export function RunScreen({ runId, onDone, onHome }: { runId: string; onDone: ()
         })}
 
         {/* convergence / synthesizing */}
-        {(synthesizing || status === 'done') && (
-          <li className="relative pb-2" style={{ animation: 'drop-in 220ms var(--ease-out)' }}>
+        {showConverge && (
+          <li className="relative pb-2" style={{ animation: 'drop-in 260ms var(--ease-out)' }}>
             <span
               className="absolute -left-6 top-1.5 h-[11px] w-[11px] rounded-full ring-2 ring-bg"
               style={
-                status === 'done'
+                convergeDone
                   ? { background: 'var(--color-accent)' }
                   : { background: 'transparent', boxShadow: 'inset 0 0 0 2px var(--color-accent)', animation: 'pulse-accent 1.4s infinite' }
               }
             />
             <span className="text-sm font-medium text-accent-hi">
-              {status === 'done' ? 'Playbook ready — opening…' : 'Assembling the playbook…'}
+              {convergeDone ? 'Playbook ready — opening…' : 'Assembling the playbook…'}
             </span>
           </li>
         )}
       </ol>
 
-      {steps.length === 0 && status === 'running' && (
+      {steps.length === 0 && (status === 'running' || (demo && status === 'done')) && (
         <p className="mt-6 pl-6 text-sm text-text-dim">The agent is planning its investigation…</p>
       )}
     </div>

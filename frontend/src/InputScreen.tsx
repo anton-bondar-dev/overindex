@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { startAnalyze } from './api'
 import { domainColor } from './types'
+import { DEMO, sleep, jittered } from './demo'
 
 const EXAMPLES: Array<[string, string]> = [
   ['Patagonia', 'place'],
@@ -29,6 +30,25 @@ export function InputScreen({ onStart }: { onStart: (runId: string) => void }) {
       setLoading(false)
     }
   }
+
+  // Demo mode: type the brand out and submit, so the opening reads deliberately.
+  useEffect(() => {
+    if (!DEMO.on) return
+    let cancelled = false
+    void (async () => {
+      await sleep(DEMO.startHold)
+      for (let i = 1; i <= DEMO.brand.length && !cancelled; i++) {
+        setBrand(DEMO.brand.slice(0, i))
+        await sleep(jittered(DEMO.charMs, DEMO.jitter))
+      }
+      await sleep(DEMO.holdBeforeSubmit)
+      if (!cancelled) void go(DEMO.brand)
+    })()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return (
     <div className="mx-auto flex min-h-screen max-w-2xl flex-col justify-center px-4 py-16">
@@ -78,7 +98,7 @@ export function InputScreen({ onStart }: { onStart: (runId: string) => void }) {
       )}
 
       <div className="mt-6">
-        <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-text-faint">Or try one</div>
+        <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-text-faint">Or open a ready example · instant</div>
         <div className="flex flex-wrap gap-2">
           {EXAMPLES.map(([label, domain]) => (
             <button
@@ -98,7 +118,7 @@ export function InputScreen({ onStart }: { onStart: (runId: string) => void }) {
       </div>
 
       <p className="mt-12 text-[11px] uppercase tracking-[0.08em] text-text-faint">
-        Grounded in Qloo's Taste AI · novel brands ~30s
+        Grounded in Qloo's Taste AI · examples instant · new brands ~30s
       </p>
     </div>
   )

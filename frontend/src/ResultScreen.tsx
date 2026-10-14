@@ -2,6 +2,8 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { getResult } from './api'
 import { domainColor } from './types'
 import type { AnalysisResult, EntityAffinity } from './types'
+import { DEMO, sleep } from './demo'
+import { smoothScrollTo, useCountUp, useInView } from './motion'
 
 export function ResultScreen({ runId, onHome }: { runId: string; onHome: () => void }) {
   const [result, setResult] = useState<AnalysisResult | null>(null)
@@ -29,6 +31,38 @@ export function ResultScreen({ runId, onHome }: { runId: string; onHome: () => v
       cancelled = true
     }
   }, [runId])
+
+  // Demo mode: once the playbook is on screen, drive a slow, scripted scroll
+  // through each section so the whole walkthrough plays itself for capture.
+  useEffect(() => {
+    if (!DEMO.on || !result) return
+    let cancelled = false
+    void (async () => {
+      window.scrollTo(0, 0)
+      await sleep(DEMO.dwell.persona ?? 2800)
+      const order: Array<[string, number]> = [
+        ['blindSpot', DEMO.dwell.blindSpot ?? 3500],
+        ['scatter', DEMO.dwell.scatter ?? 2800],
+        ['fingerprint', DEMO.dwell.fingerprint ?? 1800],
+        ['moves', DEMO.dwell.moves ?? 1800],
+        ['methodology', DEMO.dwell.methodology ?? 2500],
+      ]
+      for (const [key, dwell] of order) {
+        if (cancelled) return
+        const el = document.querySelector(`[data-demo-section="${key}"]`) as HTMLElement | null
+        if (!el) continue
+        const top = Math.max(0, el.getBoundingClientRect().top + window.scrollY - 72)
+        await smoothScrollTo(top, DEMO.legMs)
+        if (cancelled) return
+        await sleep(dwell)
+      }
+      await sleep(600)
+      if (!cancelled) document.documentElement.setAttribute('data-demo-finished', '')
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [result])
 
   if (err)
     return (
@@ -95,7 +129,7 @@ export function ResultScreen({ runId, onHome }: { runId: string; onHome: () => v
 
       {/* BLIND SPOT — the hero (the one glow) */}
       {bs && (
-        <div className="card glow mt-10 p-7" style={{ borderRadius: 'var(--radius-hero)' }}>
+        <div data-demo-section="blindSpot" className="card glow mt-10 p-7" style={{ borderRadius: 'var(--radius-hero)' }}>
           <div className="grid gap-6 sm:grid-cols-[1fr_auto] sm:items-center">
             <div>
               <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-accent-hi">Blind spot</div>
@@ -119,7 +153,7 @@ export function ResultScreen({ runId, onHome }: { runId: string; onHome: () => v
 
       {/* OPPORTUNITIES (grounded) */}
       {result.opportunities.length > 0 && (
-        <Section kind="grounded" title="What they quietly over-index on" sub="High affinity, lower reach — the ownable signals, ranked by affinity × (1 − popularity).">
+        <Section anchor="scatter" kind="grounded" title="What they quietly over-index on" sub="High affinity, lower reach — the ownable signals, ranked by affinity × (1 − popularity).">
           <div className="mt-4">
             <OpportunityScatter items={result.opportunities} />
           </div>
@@ -133,7 +167,7 @@ export function ResultScreen({ runId, onHome }: { runId: string; onHome: () => v
 
       {/* TASTE FINGERPRINT (grounded) */}
       {result.domains.length > 0 && (
-      <Section kind="grounded" title="Taste fingerprint by domain">
+      <Section anchor="fingerprint" kind="grounded" title="Taste fingerprint by domain">
         <div className="mt-3 grid gap-x-8 gap-y-5 sm:grid-cols-2">
           {spine.map((d) => (
             <div key={d.domain}>
@@ -180,7 +214,7 @@ export function ResultScreen({ runId, onHome }: { runId: string; onHome: () => v
 
       {/* COLLABORATIONS (proposed) */}
       {result.collaborations.length > 0 && (
-        <Section kind="proposed" title="Collaborations to pursue" sub="Ranked by ownability = affinity × (1 − popularity): loved by this audience, not yet obvious.">
+        <Section anchor="moves" kind="proposed" title="Collaborations to pursue" sub="Ranked by ownability = affinity × (1 − popularity): loved by this audience, not yet obvious.">
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             {[...result.collaborations].sort((a, b) => b.arbitrage - a.arbitrage).map((c, i) => (
               <div key={i} className="card p-4 transition-transform duration-200 hover:-translate-y-0.5">
@@ -225,7 +259,7 @@ export function ResultScreen({ runId, onHome }: { runId: string; onHome: () => v
 
       {/* METHODOLOGY (grounded) */}
       {result.qloo_calls.length > 0 && (
-      <Section kind="grounded" title="Methodology" sub={`${result.qloo_calls.length} real Qloo API calls`}>
+      <Section anchor="methodology" kind="grounded" title="Methodology" sub={`${result.qloo_calls.length} real Qloo API calls`}>
         <div className="mt-3 overflow-hidden rounded-[8px] border border-border">
           <table className="mono-num w-full text-[12px]">
             <tbody>
@@ -334,9 +368,12 @@ function HeroFigure({ e }: { e: EntityAffinity }) {
   // it) alongside its general popularity. The gap between the two — loved yet
   // niche — is the over-index, shown rather than reduced to a fake multiplier.
   const pop = e.popularity != null ? Math.round(e.popularity * 100) : null
+  const target = Math.round(e.affinity * 100)
+  const [ref, inView] = useInView<HTMLDivElement>(0.6)
+  const n = useCountUp(target, DEMO.on && inView, 1000)
   return (
-    <div className="text-center">
-      <div className="mono-num text-5xl font-semibold tracking-tight text-text-hi">{Math.round(e.affinity * 100)}</div>
+    <div className="text-center" ref={ref}>
+      <div className="mono-num text-5xl font-semibold tracking-tight text-text-hi">{DEMO.on ? n : target}</div>
       <div className="mt-1 text-[11px] uppercase tracking-wide text-text-faint">audience affinity</div>
       {pop != null && <div className="mono-num mt-2 text-[11px] text-text-dim">{pop} popularity</div>}
       <div className="mt-2 font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-ok">● Qloo data</div>
@@ -495,9 +532,10 @@ function Prov({ kind }: { kind: 'grounded' | 'proposed' }) {
   )
 }
 
-function Section({ kind, title, sub, children }: { kind: 'grounded' | 'proposed'; title: string; sub?: string; children: ReactNode }) {
+function Section({ kind, title, sub, children, anchor }: { kind: 'grounded' | 'proposed'; title: string; sub?: string; children: ReactNode; anchor?: string }) {
   return (
     <section
+      data-demo-section={anchor}
       className="mt-12 border-l-2 pl-4"
       style={{ borderColor: kind === 'grounded' ? 'var(--color-ok)' : 'var(--color-warn)' }}
     >
