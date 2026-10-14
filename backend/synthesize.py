@@ -148,8 +148,9 @@ def build_facts(gathered, brand: str = "") -> dict:
 
     # Blind spot: a LOW-popularity recognizable MEDIA entity OUTSIDE the audience's
     # dominant lane AND not already shown as a top defining-taste — so the hero is
-    # genuinely surprising, not a duplicate of opportunities[0]. No in-lane fallback:
-    # if nothing surprising qualifies, the hero is suppressed.
+    # genuinely surprising, not a duplicate of opportunities[0]. Tiered fallback: if
+    # nothing qualifies cross-lane, relax the lane rule, then widen the popularity
+    # ceiling — so a complete result still has a hero (the LINE adapts to the pop).
     defining_ids = {e.id for e in opportunities[:5]}
     dom_counts = Counter(e.domain for e in opportunities if e.domain in BLIND_DOMAINS)
     dominant = dom_counts.most_common(1)[0][0] if dom_counts else None
@@ -291,6 +292,8 @@ def assemble(brand: str, facts: dict, proposed: dict, qloo_calls=None, resolutio
                 and (e.popularity is None or e.popularity <= 0.9))
 
     picked, seen = [], set()
+    if blind and blind.entity:   # never surface the blind-spot hero as a collaboration too
+        seen.add(blind.entity.name)
     for c in proposed.get("collaborations", []):
         nm = c if isinstance(c, str) else (c.get("entity_name") if isinstance(c, dict) else None)
         e = (collab_by_name.get(nm) or name_index.get(nm)) if nm else None
